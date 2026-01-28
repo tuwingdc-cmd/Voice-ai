@@ -1,6 +1,6 @@
 // ============================================================
-//         DISCORD AI BOT - MULTI PROVIDER v2.11
-//         Tavily + Serper Search | Gemini AI | Natural TTS
+//         DISCORD AI BOT - MULTI PROVIDER v2.12
+//         Fixed Models | Optimized | Rate Limited
 // ============================================================
 
 const {
@@ -12,7 +12,8 @@ const {
     ButtonBuilder,
     ButtonStyle,
     ActivityType,
-    AttachmentBuilder
+    AttachmentBuilder,
+    Events
 } = require('discord.js');
 
 const {
@@ -26,7 +27,7 @@ const {
     StreamType
 } = require('@discordjs/voice');
 
-const { exec } = require('child_process');
+const { execFile, exec } = require('child_process');
 const { createServer } = require('http');
 const https = require('https');
 const fs = require('fs');
@@ -40,15 +41,14 @@ const healthServer = createServer((req, res) => {
     const status = {
         status: 'ok',
         bot: client?.user?.tag || 'starting...',
-        version: '2.11.0',
+        version: '2.12.0',
         uptime: Math.floor((Date.now() - startTime) / 1000),
         guilds: client?.guilds?.cache?.size || 0,
         conversations: conversations?.size || 0,
-        activeVoice: voiceConnections?.size || 0,
-        features: ['tavily', 'serper', 'gemini', 'natural-tts', 'unlimited-memory']
+        activeVoice: voiceConnections?.size || 0
     };
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(status, null, 2));
+    res.end(JSON.stringify(status));
 });
 
 healthServer.listen(process.env.PORT || 3000, () => console.log('🌐 Health server ready'));
@@ -64,13 +64,56 @@ const CONFIG = {
     tavilyApiKey: process.env.TAVILY_API_KEY,
     serperApiKey: process.env.SERPER_API_KEY,
     geminiApiKey: process.env.GEMINI_API_KEY,
+    // TTS Settings
     ttsMaxChunkLength: 1000,
     ttsMaxTotalLength: 10000,
     ttsMinChunkLength: 50,
     ttsConcatTimeout: 120000,
     ttsGenerateTimeout: 60000,
-    voiceInactivityTimeout: 300000
+    // Voice Settings
+    voiceInactivityTimeout: 300000,
+    // Memory Settings
+    maxConversationMessages: 50,
+    maxConversationAge: 3600000, // 1 hour
+    // Rate Limiting
+    rateLimitWindow: 60000, // 1 minute
+    rateLimitMax: 20 // max requests per window
 };
+
+// ==================== RATE LIMITER ====================
+
+const rateLimits = new Map();
+
+function checkRateLimit(userId) {
+    const now = Date.now();
+    const userLimit = rateLimits.get(userId);
+    
+    if (!userLimit) {
+        rateLimits.set(userId, { count: 1, resetAt: now + CONFIG.rateLimitWindow });
+        return { allowed: true, remaining: CONFIG.rateLimitMax - 1 };
+    }
+    
+    if (now > userLimit.resetAt) {
+        rateLimits.set(userId, { count: 1, resetAt: now + CONFIG.rateLimitWindow });
+        return { allowed: true, remaining: CONFIG.rateLimitMax - 1 };
+    }
+    
+    if (userLimit.count >= CONFIG.rateLimitMax) {
+        const waitTime = Math.ceil((userLimit.resetAt - now) / 1000);
+        return { allowed: false, waitTime, remaining: 0 };
+    }
+    
+    userLimit.count++;
+    return { allowed: true, remaining: CONFIG.rateLimitMax - userLimit.count };
+}
+
+// Cleanup rate limits every minute
+setInterval(() => {
+    const now = Date.now();
+    for (const [userId, limit] of rateLimits) {
+        if (now > limit.resetAt) rateLimits.delete(userId);
+    }
+}, 60000);
 
 // ==================== SEARCH SYSTEM ====================
 
@@ -93,22 +136,17 @@ function shouldSearch(message) {
 function getCurrentDateTime() {
     const now = new Date();
     const options = {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        timeZone: 'Asia/Jakarta'
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta'
     };
     return now.toLocaleDateString('id-ID', options) + ' WIB';
 }
 
-// ==================== TAVILY SEARCH ====================
+// ==================== SEARCH PROVIDERS ====================
 
 async function searchTavily(query, options = {}) {
     if (!CONFIG.tavilyApiKey) return null;
-
+    
     const searchParams = {
         api_key: CONFIG.tavilyApiKey,
         query: query,
@@ -120,32 +158,21 @@ async function searchTavily(query, options = {}) {
 
     return new Promise((resolve) => {
         const postData = JSON.stringify(searchParams);
-
         const req = https.request({
             hostname: 'api.tavily.com',
             path: '/search',
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(postData)
-            },
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
             timeout: 15000
         }, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
                 try {
-                    if (res.statusCode === 200) {
-                        resolve(JSON.parse(data));
-                    } else {
-                        resolve(null);
-                    }
-                } catch (e) {
-                    resolve(null);
-                }
+                    resolve(res.statusCode === 200 ? JSON.parse(data) : null);
+                } catch { resolve(null); }
             });
         });
-
         req.on('error', () => resolve(null));
         req.on('timeout', () => { req.destroy(); resolve(null); });
         req.write(postData);
@@ -153,27 +180,21 @@ async function searchTavily(query, options = {}) {
     });
 }
 
-// ==================== SERPER SEARCH ====================
-
 async function searchSerper(query, options = {}) {
     if (!CONFIG.serperApiKey) return null;
-
+    
     const searchParams = {
-        q: query,
-        gl: options.country || 'id',
-        hl: options.language || 'id',
-        num: options.maxResults || 5,
-        autocorrect: true
+        q: query, gl: options.country || 'id', hl: options.language || 'id',
+        num: options.maxResults || 5, autocorrect: true
     };
 
-    const endpoint = options.type === 'news' 
-        ? 'https://google.serper.dev/news' 
-        : 'https://google.serper.dev/search';
+    const endpoint = options.type === 'news' ? '/news' : '/search';
 
     return new Promise((resolve) => {
         const postData = JSON.stringify(searchParams);
-
-        const req = https.request(endpoint, {
+        const req = https.request({
+            hostname: 'google.serper.dev',
+            path: endpoint,
             method: 'POST',
             headers: {
                 'X-API-KEY': CONFIG.serperApiKey,
@@ -186,17 +207,10 @@ async function searchSerper(query, options = {}) {
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
                 try {
-                    if (res.statusCode === 200) {
-                        resolve(JSON.parse(data));
-                    } else {
-                        resolve(null);
-                    }
-                } catch (e) {
-                    resolve(null);
-                }
+                    resolve(res.statusCode === 200 ? JSON.parse(data) : null);
+                } catch { resolve(null); }
             });
         });
-
         req.on('error', () => resolve(null));
         req.on('timeout', () => { req.destroy(); resolve(null); });
         req.write(postData);
@@ -204,127 +218,58 @@ async function searchSerper(query, options = {}) {
     });
 }
 
-// ==================== COMBINED SEARCH ====================
-
 async function performSearch(query) {
     const dateTime = getCurrentDateTime();
-    let searchData = {
-        timestamp: dateTime,
-        answer: null,
-        facts: [],
-        source: null
-    };
+    let searchData = { timestamp: dateTime, answer: null, facts: [], source: null };
 
-    // Try Serper first (faster, Google-like)
+    // Try Serper first
     if (CONFIG.serperApiKey) {
-        console.log('🔍 Searching with Serper...');
         const serperResult = await searchSerper(query);
-
         if (serperResult) {
             searchData.source = 'serper';
-
             if (serperResult.answerBox) {
-                searchData.answer = serperResult.answerBox.answer || 
-                                   serperResult.answerBox.snippet ||
-                                   serperResult.answerBox.title;
+                searchData.answer = serperResult.answerBox.answer || serperResult.answerBox.snippet;
             }
-
-            if (serperResult.organic && serperResult.organic.length > 0) {
+            if (serperResult.organic?.length > 0) {
                 serperResult.organic.slice(0, 4).forEach(item => {
-                    if (item.snippet) {
-                        searchData.facts.push(item.snippet);
-                    }
+                    if (item.snippet) searchData.facts.push(item.snippet);
                 });
             }
-
-            if (serperResult.knowledgeGraph) {
-                const kg = serperResult.knowledgeGraph;
-                if (kg.description) {
-                    searchData.facts.unshift(kg.description);
-                }
+            if (serperResult.knowledgeGraph?.description) {
+                searchData.facts.unshift(serperResult.knowledgeGraph.description);
             }
-
-            if (searchData.answer || searchData.facts.length > 0) {
-                console.log('✅ Serper found results');
-                return searchData;
-            }
+            if (searchData.answer || searchData.facts.length > 0) return searchData;
         }
     }
 
     // Fallback to Tavily
     if (CONFIG.tavilyApiKey) {
-        console.log('🔍 Searching with Tavily...');
         const tavilyResult = await searchTavily(query);
-
         if (tavilyResult) {
             searchData.source = 'tavily';
-
-            if (tavilyResult.answer) {
-                searchData.answer = tavilyResult.answer;
-            }
-
-            if (tavilyResult.results && tavilyResult.results.length > 0) {
+            if (tavilyResult.answer) searchData.answer = tavilyResult.answer;
+            if (tavilyResult.results?.length > 0) {
                 tavilyResult.results.slice(0, 4).forEach(item => {
-                    if (item.content) {
-                        searchData.facts.push(item.content.slice(0, 300));
-                    }
+                    if (item.content) searchData.facts.push(item.content.slice(0, 300));
                 });
             }
-
-            if (searchData.answer || searchData.facts.length > 0) {
-                console.log('✅ Tavily found results');
-                return searchData;
-            }
+            if (searchData.answer || searchData.facts.length > 0) return searchData;
         }
     }
 
     return null;
 }
 
-// ==================== NATURAL SEARCH CONTEXT ====================
-
 function formatSearchForAI(searchData) {
     if (!searchData) return '';
-
     let context = `\n\n[INFORMASI TERKINI - ${searchData.timestamp}]\n`;
-
-    if (searchData.answer) {
-        context += `Jawaban langsung: ${searchData.answer}\n`;
-    }
-
+    if (searchData.answer) context += `Jawaban langsung: ${searchData.answer}\n`;
     if (searchData.facts.length > 0) {
         context += `Fakta terkait:\n`;
-        searchData.facts.forEach((fact, i) => {
-            context += `- ${fact}\n`;
-        });
+        searchData.facts.forEach(fact => context += `- ${fact}\n`);
     }
-
-    context += `\nGunakan informasi di atas untuk menjawab dengan natural. `;
-    context += `Jangan sebutkan "menurut sumber" atau baca URL. `;
-    context += `Jawab seolah kamu yang tahu informasinya. `;
-    context += `Jika ditanya kapan info ini, sebutkan waktu: ${searchData.timestamp}`;
-
+    context += `\nGunakan informasi di atas untuk menjawab dengan natural. Jangan sebutkan "menurut sumber".`;
     return context;
-}
-
-function formatSearchForDisplay(searchData, query) {
-    if (!searchData) return null;
-
-    let display = `🔍 **Hasil pencarian:** "${query}"\n`;
-    display += `📅 *${searchData.timestamp}*\n\n`;
-
-    if (searchData.answer) {
-        display += `**Jawaban:**\n${searchData.answer}\n\n`;
-    }
-
-    if (searchData.facts.length > 0) {
-        display += `**Info terkait:**\n`;
-        searchData.facts.slice(0, 3).forEach((fact, i) => {
-            display += `${i + 1}. ${fact.slice(0, 200)}...\n\n`;
-        });
-    }
-
-    return display;
 }
 
 // ==================== SYSTEM PROMPT ====================
@@ -335,32 +280,18 @@ const MASTER_SYSTEM_PROMPT = `Kamu adalah Aria, asisten AI yang cerdas, friendly
 - Bijaksana dan berpengetahuan luas
 - Jujur - jangan mengarang fakta
 - Friendly tapi profesional
-- Bisa serius dan bisa santai
 
 ## GAYA BICARA:
-- Bahasa Indonesia natural dan mengalir
+- Bahasa Indonesia natural
 - Jawaban lengkap tapi tidak bertele-tele
-- Boleh pakai emoji secukupnya
 - Untuk voice: jawab ringkas 2-4 kalimat
 
-## ATURAN PENTING SAAT MENJAWAB DENGAN INFO DARI INTERNET:
+## ATURAN SAAT MENJAWAB DENGAN INFO INTERNET:
 1. JANGAN katakan "menurut sumber" atau "berdasarkan pencarian"
-2. JANGAN baca URL atau link apapun
-3. JANGAN sebutkan nama website sumber
-4. Jawab NATURAL seolah kamu yang tahu informasinya
-5. Jika ditanya kapan dapat info, sebutkan waktu yang diberikan
-6. Sampaikan informasi dengan gaya percakapan biasa
+2. JANGAN baca URL atau sebutkan nama website
+3. Jawab NATURAL seolah kamu yang tahu informasinya`;
 
-## CONTOH YANG BENAR:
-User: "Siapa presiden Indonesia sekarang?"
-Aria: "Presiden Indonesia saat ini adalah Prabowo Subianto, yang dilantik pada Oktober 2024. Beliau sebelumnya menjabat sebagai Menteri Pertahanan."
-
-## CONTOH YANG SALAH:
-"Menurut informasi dari internet..." ❌
-"Berdasarkan sumber yang saya temukan..." ❌
-"Dari website kompas.com..." ❌`;
-
-// ==================== AI PROVIDERS ====================
+// ==================== AI PROVIDERS (FIXED MODELS) ====================
 
 const AI_PROVIDERS = {
     gemini: {
@@ -368,13 +299,14 @@ const AI_PROVIDERS = {
         requiresKey: true,
         keyEnv: 'GEMINI_API_KEY',
         models: [
-            { id: 'gemini-2.5-flash-preview-05-20', name: 'Gemini 2.5 Flash', version: '2.5-flash', category: 'latest' },
-            { id: 'gemini-2.5-pro-preview-05-06', name: 'Gemini 2.5 Pro', version: '2.5-pro', category: 'latest' },
-            { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', version: '2.0-flash', category: 'stable' },
+            // STABLE MODELS - Gunakan ini!
+            { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', version: '2.0', category: 'stable' },
             { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite', version: '2.0-lite', category: 'stable' },
-            { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', version: '1.5-flash', category: 'stable' },
+            { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', version: '1.5-pro', category: 'stable' },
             { id: 'gemini-1.5-flash-8b', name: 'Gemini 1.5 Flash 8B', version: '1.5-8b', category: 'stable' },
-            { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', version: '1.5-pro', category: 'stable' }
+            // EXPERIMENTAL - Mungkin tidak tersedia
+            { id: 'gemini-2.5-flash-preview-05-20', name: 'Gemini 2.5 Flash Preview', version: '2.5-preview', category: 'experimental' },
+            { id: 'gemini-2.5-pro-preview-05-06', name: 'Gemini 2.5 Pro Preview', version: '2.5-pro', category: 'experimental' }
         ]
     },
 
@@ -385,18 +317,8 @@ const AI_PROVIDERS = {
         models: [
             { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', version: 'v3.3', category: 'production' },
             { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B', version: 'v3.1', category: 'production' },
-            { id: 'llama-3.2-1b-preview', name: 'Llama 3.2 1B', version: 'v3.2-1B', category: 'production' },
-            { id: 'llama-3.2-3b-preview', name: 'Llama 3.2 3B', version: 'v3.2-3B', category: 'production' },
-            { id: 'llama-3.2-11b-vision-preview', name: 'Llama 3.2 11B Vision', version: 'v3.2-11B', category: 'vision' },
-            { id: 'llama-3.2-90b-vision-preview', name: 'Llama 3.2 90B Vision', version: 'v3.2-90B', category: 'vision' },
             { id: 'gemma2-9b-it', name: 'Gemma 2 9B', version: '9B', category: 'production' },
-            { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', version: '8x7B', category: 'production' },
-            { id: 'qwen/qwen3-32b', name: 'Qwen3 32B', version: '32B', category: 'preview' },
-            { id: 'meta-llama/llama-4-maverick-17b-128e-instruct', name: 'Llama 4 Maverick', version: '17B-128E', category: 'preview' },
-            { id: 'meta-llama/llama-4-scout-17b-16e-instruct', name: 'Llama 4 Scout', version: '17B-16E', category: 'preview' },
-            { id: 'mistral-saba-24b', name: 'Mistral Saba 24B', version: '24B', category: 'production' },
-            { id: 'whisper-large-v3', name: 'Whisper Large V3', version: 'v3', category: 'stt' },
-            { id: 'whisper-large-v3-turbo', name: 'Whisper V3 Turbo', version: 'v3-turbo', category: 'stt' }
+            { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', version: '8x7B', category: 'production' }
         ]
     },
 
@@ -404,25 +326,15 @@ const AI_PROVIDERS = {
         name: 'Pollinations (Free)',
         requiresKey: false,
         models: [
-            { id: 'openai', name: 'OpenAI GPT', version: 'GPT-4.1-nano' },
+            { id: 'openai', name: 'OpenAI GPT', version: 'GPT-4.1' },
             { id: 'openai-large', name: 'OpenAI Large', version: 'GPT-4.1-large' },
-            { id: 'openai-reasoning', name: 'OpenAI Reasoning', version: 'o3-mini' },
-            { id: 'qwen', name: 'Qwen', version: 'Qwen3' },
-            { id: 'qwen-coder', name: 'Qwen Coder', version: 'Qwen3-Coder' },
+            { id: 'claude-hybridspace', name: 'Claude', version: 'Claude-3.5' },
+            { id: 'gemini', name: 'Gemini', version: '2.5-Pro' },
             { id: 'llama', name: 'Llama', version: 'Llama-3.3' },
             { id: 'mistral', name: 'Mistral', version: 'Mistral-Small' },
-            { id: 'mistral-large', name: 'Mistral Large', version: 'Mistral-Large' },
             { id: 'deepseek', name: 'DeepSeek', version: 'V3' },
             { id: 'deepseek-r1', name: 'DeepSeek R1', version: 'R1' },
-            { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner', version: 'R1-Reasoner' },
-            { id: 'gemini', name: 'Gemini', version: '2.5-Pro' },
-            { id: 'gemini-thinking', name: 'Gemini Thinking', version: '2.5-Thinking' },
-            { id: 'claude-hybridspace', name: 'Claude Hybridspace', version: 'Claude-3.5' },
-            { id: 'phi', name: 'Phi', version: 'Phi-4' },
-            { id: 'unity', name: 'Unity', version: 'v1' },
-            { id: 'midijourney', name: 'Midijourney', version: 'v1' },
-            { id: 'searchgpt', name: 'SearchGPT', version: 'v1' },
-            { id: 'llamalight', name: 'Llama Light', version: 'Llama-3.3-70B' }
+            { id: 'qwen', name: 'Qwen', version: 'Qwen3' }
         ]
     },
 
@@ -431,38 +343,11 @@ const AI_PROVIDERS = {
         requiresKey: true,
         keyEnv: 'OPENROUTER_API_KEY',
         models: [
-            { id: 'google/gemini-2.5-flash-preview:free', name: 'Gemini 2.5 Flash', version: '2.5-flash', category: 'google' },
             { id: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash', version: '2.0-free', category: 'google' },
             { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek R1', version: 'R1-free', category: 'deepseek' },
-            { id: 'deepseek/deepseek-chat-v3-0324:free', name: 'DeepSeek V3', version: 'V3-free', category: 'deepseek' },
-            { id: 'deepseek/deepseek-r1-0528:free', name: 'DeepSeek R1 0528', version: 'R1-0528', category: 'deepseek' },
             { id: 'qwen/qwen3-32b:free', name: 'Qwen3 32B', version: '32B-free', category: 'qwen' },
-            { id: 'qwen/qwen-2.5-72b-instruct:free', name: 'Qwen 2.5 72B', version: '72B-free', category: 'qwen' },
-            { id: 'qwen/qwq-32b:free', name: 'QwQ 32B', version: 'QwQ-32B', category: 'qwen' },
             { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B', version: '70B-free', category: 'meta' },
-            { id: 'meta-llama/llama-3.2-11b-vision-instruct:free', name: 'Llama 3.2 11B Vision', version: '11B-vision', category: 'meta' },
-            { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 24B', version: '24B-free', category: 'mistral' },
-            { id: 'nvidia/llama-3.1-nemotron-70b-instruct:free', name: 'Nemotron 70B', version: '70B-free', category: 'nvidia' },
-            { id: 'thudm/glm-4.5-air:free', name: 'GLM 4.5 Air', version: '4.5-air', category: 'thudm' },
-            { id: 'thudm/glm-z1-32b:free', name: 'GLM Z1 32B', version: '32B-free', category: 'thudm' },
-            { id: 'microsoft/phi-4:free', name: 'Phi-4', version: 'phi4-free', category: 'microsoft' },
-            { id: 'google/gemma-3-27b-it:free', name: 'Gemma 3 27B', version: '27B-free', category: 'google' },
-            { id: 'nousresearch/hermes-3-llama-3.1-405b:free', name: 'Hermes 3 405B', version: '405B-free', category: 'other' }
-        ]
-    },
-
-    huggingface: {
-        name: 'HuggingFace',
-        requiresKey: true,
-        keyEnv: 'HUGGINGFACE_API_KEY',
-        models: [
-            { id: 'meta-llama/Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B', version: '3.1-8B' },
-            { id: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B', version: '3.3-70B' },
-            { id: 'mistralai/Mistral-7B-Instruct-v0.3', name: 'Mistral 7B', version: '7B-v0.3' },
-            { id: 'mistralai/Mixtral-8x7B-Instruct-v0.1', name: 'Mixtral 8x7B', version: '8x7B' },
-            { id: 'microsoft/Phi-3-mini-4k-instruct', name: 'Phi-3 Mini', version: 'mini-4k' },
-            { id: 'Qwen/Qwen2.5-72B-Instruct', name: 'Qwen 2.5 72B', version: '2.5-72B' },
-            { id: 'google/gemma-2-27b-it', name: 'Gemma 2 27B', version: '2-27B' }
+            { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 24B', version: '24B-free', category: 'mistral' }
         ]
     }
 };
@@ -479,13 +364,8 @@ const TTS_PROVIDERS = {
             { id: 'en-US-JennyNeural', name: 'Jenny (US)', lang: 'en' },
             { id: 'en-US-GuyNeural', name: 'Guy (US)', lang: 'en' },
             { id: 'en-US-AriaNeural', name: 'Aria (US)', lang: 'en' },
-            { id: 'en-GB-SoniaNeural', name: 'Sonia (UK)', lang: 'en' },
             { id: 'ja-JP-NanamiNeural', name: 'Nanami (JP)', lang: 'ja' },
-            { id: 'ko-KR-SunHiNeural', name: 'SunHi (KR)', lang: 'ko' },
-            { id: 'zh-CN-XiaoxiaoNeural', name: 'Xiaoxiao (CN)', lang: 'zh' },
-            { id: 'de-DE-KatjaNeural', name: 'Katja (DE)', lang: 'de' },
-            { id: 'fr-FR-DeniseNeural', name: 'Denise (FR)', lang: 'fr' },
-            { id: 'es-ES-ElviraNeural', name: 'Elvira (ES)', lang: 'es' }
+            { id: 'ko-KR-SunHiNeural', name: 'SunHi (KR)', lang: 'ko' }
         ]
     },
     pollinations: {
@@ -494,21 +374,8 @@ const TTS_PROVIDERS = {
         voices: [
             { id: 'alloy', name: 'Alloy', lang: 'multi' },
             { id: 'echo', name: 'Echo', lang: 'multi' },
-            { id: 'fable', name: 'Fable', lang: 'multi' },
-            { id: 'onyx', name: 'Onyx', lang: 'multi' },
             { id: 'nova', name: 'Nova', lang: 'multi' },
             { id: 'shimmer', name: 'Shimmer', lang: 'multi' }
-        ]
-    },
-    elevenlabs: {
-        name: 'ElevenLabs',
-        requiresKey: true,
-        keyEnv: 'ELEVENLABS_API_KEY',
-        voices: [
-            { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel', lang: 'multi' },
-            { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella', lang: 'multi' },
-            { id: 'pNInz6obpgDQGcFmaJgB', name: 'Adam', lang: 'multi' },
-            { id: 'ErXwobaYiN019PkySvjV', name: 'Antoni', lang: 'multi' }
         ]
     }
 };
@@ -516,14 +383,13 @@ const TTS_PROVIDERS = {
 // ==================== DEFAULT SETTINGS ====================
 
 const DEFAULT_SETTINGS = {
-    aiProvider: 'pollinations_free',
-    aiModel: 'openai',
+    aiProvider: 'gemini',
+    aiModel: 'gemini-2.0-flash', // DEFAULT: Model stabil!
     ttsProvider: 'edge',
     ttsVoice: 'id-ID-GadisNeural',
     mode: 'voice',
     ttsOutput: 'auto',
     searchEnabled: true,
-    searchProvider: 'auto',
     systemPrompt: MASTER_SYSTEM_PROMPT
 };
 
@@ -546,25 +412,33 @@ const ttsQueues = new Map();
 const voiceTimeouts = new Map();
 const conversations = new Map();
 
-// ==================== CONVERSATION MEMORY ====================
+// ==================== CONVERSATION MEMORY (OPTIMIZED) ====================
 
 function getConversation(guildId, oderId) {
     const key = `${guildId}-${oderId}`;
     if (!conversations.has(key)) {
-        conversations.set(key, {
-            messages: [],
-            createdAt: Date.now(),
-            lastActivity: Date.now()
-        });
+        conversations.set(key, { messages: [], createdAt: Date.now(), lastActivity: Date.now() });
     }
     const conv = conversations.get(key);
     conv.lastActivity = Date.now();
+    
+    // Limit messages
+    if (conv.messages.length > CONFIG.maxConversationMessages) {
+        conv.messages = conv.messages.slice(-CONFIG.maxConversationMessages);
+    }
+    
     return conv;
 }
 
 function addToConversation(guildId, oderId, role, content) {
     const conv = getConversation(guildId, oderId);
     conv.messages.push({ role, content, timestamp: Date.now() });
+    
+    // Enforce limit
+    if (conv.messages.length > CONFIG.maxConversationMessages) {
+        conv.messages.shift();
+    }
+    
     return conv;
 }
 
@@ -578,10 +452,20 @@ function getConversationInfo(guildId, oderId) {
     const conv = conversations.get(key);
     return {
         messageCount: conv.messages.length,
-        ageMinutes: Math.floor((Date.now() - conv.createdAt) / 60000),
-        lastActiveMinutes: Math.floor((Date.now() - conv.lastActivity) / 60000)
+        maxMessages: CONFIG.maxConversationMessages,
+        ageMinutes: Math.floor((Date.now() - conv.createdAt) / 60000)
     };
 }
+
+// Cleanup old conversations
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, conv] of conversations) {
+        if (now - conv.lastActivity > CONFIG.maxConversationAge) {
+            conversations.delete(key);
+        }
+    }
+}, 300000);
 
 // ==================== UTILITIES ====================
 
@@ -592,7 +476,7 @@ function ensureTempDir() {
 }
 
 function cleanupFile(filepath) {
-    try { if (filepath && fs.existsSync(filepath)) fs.unlinkSync(filepath); } catch (e) {}
+    try { if (filepath && fs.existsSync(filepath)) fs.unlinkSync(filepath); } catch {}
 }
 
 function cleanupFiles(files) {
@@ -600,61 +484,44 @@ function cleanupFiles(files) {
     else cleanupFile(files);
 }
 
-function cleanupSessionFiles(sessionId) {
-    try {
-        const files = fs.readdirSync(CONFIG.tempPath).filter(f => f.includes(sessionId));
-        files.forEach(f => cleanupFile(path.join(CONFIG.tempPath, f)));
-    } catch (e) {}
-}
-
+// Cleanup temp files every 5 minutes
 setInterval(() => {
     try {
         const files = fs.readdirSync(CONFIG.tempPath);
         const now = Date.now();
         files.forEach(f => {
             const filepath = path.join(CONFIG.tempPath, f);
-            const stat = fs.statSync(filepath);
-            if (now - stat.mtimeMs > 600000) cleanupFile(filepath);
+            try {
+                const stat = fs.statSync(filepath);
+                if (now - stat.mtimeMs > 600000) cleanupFile(filepath);
+            } catch {}
         });
-    } catch (e) {}
+    } catch {}
 }, 300000);
 
-// Clean text for TTS - remove URLs, sources, etc
+// Sanitize text for shell (improved security)
+function sanitizeForShell(text) {
+    return text
+        .replace(/[`$\\!"]/g, '') // Remove dangerous chars
+        .replace(/'/g, "'\\''")   // Escape single quotes
+        .replace(/\n/g, ' ')      // Remove newlines
+        .trim()
+        .slice(0, 2000);          // Limit length
+}
+
 function cleanTextForTTS(text) {
     return text
-        // Remove URLs
         .replace(/https?:\/\/[^\s]+/g, '')
         .replace(/www\.[^\s]+/g, '')
-        // Remove markdown links
         .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-        // Remove source references
-        .replace(/sumber:?[^\n]*/gi, '')
-        .replace(/source:?[^\n]*/gi, '')
-        .replace(/referensi:?[^\n]*/gi, '')
-        // Remove emojis
         .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')
         .replace(/[\u{2600}-\u{27BF}]/gu, '')
-        .replace(/[\u{1F000}-\u{1F02F}]/gu, '')
-        .replace(/[\u{1F0A0}-\u{1F0FF}]/gu, '')
-        .replace(/[\u{1F100}-\u{1F64F}]/gu, '')
-        .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
-        .replace(/[\u{1F900}-\u{1FAFF}]/gu, '')
-        .replace(/[\u{FE00}-\u{FE0F}]/gu, '')
-        .replace(/[\u{200D}]/gu, '')
         .replace(/:[a-zA-Z0-9_]+:/g, '')
-        // Remove code blocks
-        .replace(/```[\w]*\n?([\s\S]*?)```/g, (m, code) => ` kode ${code.trim().split('\n').length} baris `)
+        .replace(/```[\w]*\n?([\s\S]*?)```/g, ' kode ')
         .replace(/`([^`]+)`/g, '$1')
-        // Remove markdown
         .replace(/\*\*([^*]+)\*\*/g, '$1')
         .replace(/\*([^*]+)\*/g, '$1')
-        .replace(/__([^_]+)__/g, '$1')
-        .replace(/_([^_]+)_/g, '$1')
-        .replace(/~~([^~]+)~~/g, '$1')
         .replace(/#{1,6}\s*/g, '')
-        .replace(/^[\s]*[-*+]\s+/gm, '')
-        .replace(/^[\s]*\d+\.\s+/gm, '')
-        // Clean whitespace
         .replace(/\n{3,}/g, '\n\n')
         .replace(/\s+/g, ' ')
         .trim();
@@ -670,7 +537,7 @@ function splitTextForTTS(text, maxLength = CONFIG.ttsMaxChunkLength) {
     const chunks = [];
     let remaining = limitedText;
     
-    while (remaining.length > 0) {
+    while (remaining.length > 0 && chunks.length < 10) {
         if (remaining.length <= maxLength) {
             if (remaining.trim().length >= CONFIG.ttsMinChunkLength) chunks.push(remaining.trim());
             break;
@@ -679,39 +546,25 @@ function splitTextForTTS(text, maxLength = CONFIG.ttsMaxChunkLength) {
         let splitIndex = -1;
         const searchArea = remaining.slice(0, maxLength);
         
-        const sentenceMatches = [...searchArea.matchAll(/[.!?]\s+(?=[A-Z\u0400-\u04FF\u4e00-\u9fff])/g)];
-        if (sentenceMatches.length > 0) {
-            const lastMatch = sentenceMatches[sentenceMatches.length - 1];
-            if (lastMatch.index > maxLength / 3) splitIndex = lastMatch.index + 1;
-        }
+        const lastPeriod = searchArea.lastIndexOf('. ');
+        const lastQuestion = searchArea.lastIndexOf('? ');
+        const lastExclaim = searchArea.lastIndexOf('! ');
+        splitIndex = Math.max(lastPeriod, lastQuestion, lastExclaim);
         
-        if (splitIndex === -1) {
-            const lastPeriod = searchArea.lastIndexOf('. ');
-            const lastQuestion = searchArea.lastIndexOf('? ');
-            const lastExclaim = searchArea.lastIndexOf('! ');
-            splitIndex = Math.max(lastPeriod, lastQuestion, lastExclaim);
-            if (splitIndex > 0 && splitIndex > maxLength / 3) splitIndex += 1;
-            else splitIndex = -1;
+        if (splitIndex < maxLength / 3) {
+            splitIndex = searchArea.lastIndexOf(', ');
         }
-        
-        if (splitIndex === -1) {
-            const lastComma = searchArea.lastIndexOf(', ');
-            splitIndex = lastComma > maxLength / 3 ? lastComma + 1 : -1;
-        }
-        
-        if (splitIndex === -1) {
+        if (splitIndex < maxLength / 4) {
             splitIndex = searchArea.lastIndexOf(' ');
-            if (splitIndex < maxLength / 4) splitIndex = -1;
         }
+        if (splitIndex < 0) splitIndex = maxLength;
         
-        if (splitIndex === -1) splitIndex = maxLength;
-        
-        const chunk = remaining.slice(0, splitIndex).trim();
+        const chunk = remaining.slice(0, splitIndex + 1).trim();
         if (chunk.length >= CONFIG.ttsMinChunkLength) chunks.push(chunk);
-        remaining = remaining.slice(splitIndex).trim();
+        remaining = remaining.slice(splitIndex + 1).trim();
     }
     
-    return chunks.filter(c => c.length >= CONFIG.ttsMinChunkLength);
+    return chunks;
 }
 
 function loadSettings() {
@@ -762,16 +615,16 @@ function splitMessage(text, maxLength = 1900) {
     while (remaining.length > 0) {
         if (remaining.length <= maxLength) { parts.push(remaining); break; }
         let idx = remaining.lastIndexOf('\n', maxLength);
-        if (idx === -1 || idx < maxLength / 2) idx = remaining.lastIndexOf('. ', maxLength);
-        if (idx === -1 || idx < maxLength / 2) idx = remaining.lastIndexOf(' ', maxLength);
-        if (idx === -1) idx = maxLength;
+        if (idx < maxLength / 2) idx = remaining.lastIndexOf('. ', maxLength);
+        if (idx < maxLength / 2) idx = remaining.lastIndexOf(' ', maxLength);
+        if (idx < 0) idx = maxLength;
         parts.push(remaining.slice(0, idx + 1));
         remaining = remaining.slice(idx + 1);
     }
     return parts;
 }
 
-// ==================== HTTP ====================
+// ==================== HTTP HELPERS ====================
 
 function httpRequest(options, body) {
     return new Promise((resolve, reject) => {
@@ -787,53 +640,31 @@ function httpRequest(options, body) {
     });
 }
 
-function httpRequestBinary(options, body) {
-    return new Promise((resolve, reject) => {
-        const req = https.request(options, res => {
-            const chunks = [];
-            res.on('data', c => chunks.push(c));
-            res.on('end', () => resolve(Buffer.concat(chunks)));
-        });
-        req.on('error', reject);
-        req.setTimeout(30000, () => { req.destroy(); reject(new Error('Timeout')); });
-        if (body) req.write(body);
-        req.end();
-    });
-}
-
-// ==================== AI PROVIDERS ====================
+// ==================== AI PROVIDERS IMPLEMENTATION ====================
 
 async function callGemini(model, message, history, systemPrompt) {
     const apiKey = CONFIG.geminiApiKey;
     if (!apiKey) throw new Error('GEMINI_API_KEY not set');
 
-    const contents = [];
+    // Validate model - fallback to stable if experimental
+    const modelInfo = AI_PROVIDERS.gemini.models.find(m => m.id === model);
+    if (modelInfo?.category === 'experimental') {
+        console.log(`⚠️ Model ${model} is experimental, may not be available`);
+    }
 
-    // Add history
-    history.slice(-40).forEach(m => {
+    const contents = [];
+    history.slice(-30).forEach(m => {
         contents.push({
             role: m.role === 'assistant' ? 'model' : 'user',
             parts: [{ text: m.content }]
         });
     });
-
-    // Add current message
-    contents.push({
-        role: 'user',
-        parts: [{ text: message }]
-    });
+    contents.push({ role: 'user', parts: [{ text: message }] });
 
     const requestBody = {
-        contents: contents,
-        systemInstruction: {
-            parts: [{ text: systemPrompt }]
-        },
-        generationConfig: {
-            temperature: 0.7,
-            topP: 0.95,
-            topK: 40,
-            maxOutputTokens: 2048
-        },
+        contents,
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        generationConfig: { temperature: 0.7, topP: 0.95, topK: 40, maxOutputTokens: 2048 },
         safetySettings: [
             { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
             { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
@@ -855,8 +686,7 @@ async function callGemini(model, message, history, systemPrompt) {
     }
 
     const result = JSON.parse(data);
-
-    if (result.candidates && result.candidates[0]?.content?.parts?.[0]?.text) {
+    if (result.candidates?.[0]?.content?.parts?.[0]?.text) {
         return result.candidates[0].content.parts[0].text;
     }
 
@@ -867,14 +697,9 @@ async function callGroq(model, message, history, systemPrompt) {
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) throw new Error('GROQ_API_KEY not set');
 
-    const modelInfo = AI_PROVIDERS.groq.models.find(m => m.id === model);
-    if (modelInfo && ['guard', 'tts', 'stt'].includes(modelInfo.category)) {
-        throw new Error(`Model ${model} is not a chat model`);
-    }
-
     const messages = [
         { role: 'system', content: systemPrompt },
-        ...history.slice(-50).map(m => ({ role: m.role, content: m.content })),
+        ...history.slice(-30).map(m => ({ role: m.role, content: m.content })),
         { role: 'user', content: message }
     ];
 
@@ -890,16 +715,15 @@ async function callGroq(model, message, history, systemPrompt) {
         throw new Error(result.error?.message || `HTTP ${statusCode}`);
     }
 
-    const result = JSON.parse(data);
-    return result.choices[0].message.content;
+    return JSON.parse(data).choices[0].message.content;
 }
 
 async function callPollinationsFree(model, message, history, systemPrompt) {
     let prompt = systemPrompt + '\n\n';
-    history.slice(-20).forEach(m => prompt += m.role === 'user' ? `User: ${m.content}\n` : `Assistant: ${m.content}\n`);
+    history.slice(-15).forEach(m => prompt += m.role === 'user' ? `User: ${m.content}\n` : `Assistant: ${m.content}\n`);
     prompt += `User: ${message}\nAssistant:`;
 
-    const encoded = encodeURIComponent(prompt.slice(0, 8000));
+    const encoded = encodeURIComponent(prompt.slice(0, 6000));
     const seed = Math.floor(Math.random() * 1000000);
 
     return new Promise((resolve, reject) => {
@@ -923,7 +747,7 @@ async function callOpenRouter(model, message, history, systemPrompt) {
 
     const messages = [
         { role: 'system', content: systemPrompt },
-        ...history.slice(-50).map(m => ({ role: m.role, content: m.content })),
+        ...history.slice(-30).map(m => ({ role: m.role, content: m.content })),
         { role: 'user', content: message }
     ];
 
@@ -934,8 +758,7 @@ async function callOpenRouter(model, message, history, systemPrompt) {
         headers: {
             'Authorization': `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://discord.com',
-            'X-Title': 'Discord AI Bot'
+            'HTTP-Referer': 'https://discord.com'
         }
     }, JSON.stringify({ model, messages, max_tokens: 2000, temperature: 0.7 }));
 
@@ -944,66 +767,32 @@ async function callOpenRouter(model, message, history, systemPrompt) {
         throw new Error(result.error?.message || `HTTP ${statusCode}`);
     }
 
-    const result = JSON.parse(data);
-    return result.choices[0].message.content;
-}
-
-async function callHuggingFace(model, message, history, systemPrompt) {
-    const apiKey = process.env.HUGGINGFACE_API_KEY;
-    if (!apiKey) throw new Error('HUGGINGFACE_API_KEY not set');
-
-    let prompt = systemPrompt + '\n\n';
-    history.slice(-20).forEach(m => prompt += m.role === 'user' ? `User: ${m.content}\n` : `Assistant: ${m.content}\n`);
-    prompt += `User: ${message}\nAssistant:`;
-
-    const { data } = await httpRequest({
-        hostname: 'api-inference.huggingface.co',
-        path: `/models/${model}`,
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
-    }, JSON.stringify({ inputs: prompt, parameters: { max_new_tokens: 1000 } }));
-
-    const result = JSON.parse(data);
-    if (result.error) throw new Error(result.error);
-    const text = Array.isArray(result) ? result[0].generated_text : result.generated_text;
-    return text.split('Assistant:').pop().trim();
+    return JSON.parse(data).choices[0].message.content;
 }
 
 // ==================== MAIN AI CALL ====================
 
-async function callAI(guildId, oderId, userMessage, isVoiceMode = false) {
+async function callAI(guildId, userId, userMessage, isVoiceMode = false) {
     const s = getSettings(guildId);
     const { aiProvider, aiModel, systemPrompt, searchEnabled } = s;
     const start = Date.now();
 
-    const conv = getConversation(guildId, oderId);
+    const conv = getConversation(guildId, userId);
     const history = conv.messages;
 
     let searchContext = '';
     let searchData = null;
 
-    // Perform search if enabled
     if (searchEnabled && (CONFIG.tavilyApiKey || CONFIG.serperApiKey) && shouldSearch(userMessage)) {
-        console.log('🔍 Searching:', userMessage.slice(0, 50));
         searchData = await performSearch(userMessage);
-        if (searchData) {
-            searchContext = formatSearchForAI(searchData);
-            console.log('✅ Search completed via', searchData.source);
-        }
+        if (searchData) searchContext = formatSearchForAI(searchData);
     }
 
-    // Build final prompt
-    let finalSystemPrompt = systemPrompt;
-    if (searchContext) {
-        finalSystemPrompt += searchContext;
-    }
-    if (isVoiceMode) {
-        finalSystemPrompt += '\n\n[MODE SUARA: Jawab singkat 2-4 kalimat, natural untuk didengarkan]';
-    }
+    let finalSystemPrompt = systemPrompt + searchContext;
+    if (isVoiceMode) finalSystemPrompt += '\n\n[MODE SUARA: Jawab singkat 2-4 kalimat]';
 
     try {
         let response;
-
         switch (aiProvider) {
             case 'gemini':
                 response = await callGemini(aiModel, userMessage, history, finalSystemPrompt);
@@ -1017,45 +806,41 @@ async function callAI(guildId, oderId, userMessage, isVoiceMode = false) {
             case 'openrouter':
                 response = await callOpenRouter(aiModel, userMessage, history, finalSystemPrompt);
                 break;
-            case 'huggingface':
-                response = await callHuggingFace(aiModel, userMessage, history, finalSystemPrompt);
-                break;
             default:
                 response = await callPollinationsFree('openai', userMessage, history, finalSystemPrompt);
         }
 
-        addToConversation(guildId, oderId, 'user', userMessage);
-        addToConversation(guildId, oderId, 'assistant', response);
-
-        const info = getModelInfo(aiProvider, aiModel);
+        addToConversation(guildId, userId, 'user', userMessage);
+        addToConversation(guildId, userId, 'assistant', response);
 
         return {
             text: response,
             provider: AI_PROVIDERS[aiProvider]?.name || aiProvider,
-            model: info.name,
-            version: info.version,
+            model: getModelInfo(aiProvider, aiModel).name,
             latency: Date.now() - start,
-            searched: !!searchData,
-            searchSource: searchData?.source
+            searched: !!searchData
         };
 
     } catch (error) {
         console.error(`AI Error (${aiProvider}):`, error.message);
 
-        // Fallback
+        // Fallback to Pollinations
         if (aiProvider !== 'pollinations_free') {
             console.log('Fallback to Pollinations...');
-            const fallback = await callPollinationsFree('openai', userMessage, history, finalSystemPrompt);
-            addToConversation(guildId, oderId, 'user', userMessage);
-            addToConversation(guildId, oderId, 'assistant', fallback);
-            return {
-                text: fallback,
-                provider: 'Pollinations (Fallback)',
-                model: 'OpenAI GPT',
-                version: 'GPT-4.1-nano',
-                latency: Date.now() - start,
-                searched: !!searchData
-            };
+            try {
+                const fallback = await callPollinationsFree('openai', userMessage, history, finalSystemPrompt);
+                addToConversation(guildId, userId, 'user', userMessage);
+                addToConversation(guildId, userId, 'assistant', fallback);
+                return {
+                    text: fallback,
+                    provider: 'Pollinations (Fallback)',
+                    model: 'OpenAI GPT',
+                    latency: Date.now() - start,
+                    searched: !!searchData
+                };
+            } catch (fallbackError) {
+                throw new Error(`Primary: ${error.message}, Fallback: ${fallbackError.message}`);
+            }
         }
 
         throw error;
@@ -1066,52 +851,32 @@ async function callAI(guildId, oderId, userMessage, isVoiceMode = false) {
 
 function generateSingleTTSChunk(text, voice, provider, outputPath) {
     return new Promise((resolve, reject) => {
-        const safeText = text.replace(/"/g, "'").replace(/`/g, "'").replace(/\$/g, '').replace(/\\/g, '').replace(/\n/g, ' ').trim();
-
+        const safeText = sanitizeForShell(text);
         if (!safeText || safeText.length < 2) return reject(new Error('Text too short'));
 
         const timeout = setTimeout(() => reject(new Error('TTS timeout')), CONFIG.ttsGenerateTimeout);
 
-        switch (provider) {
-            case 'edge':
-                exec(`edge-tts --voice "${voice}" --text "${safeText}" --write-media "${outputPath}"`, { timeout: CONFIG.ttsGenerateTimeout }, (err) => {
+        if (provider === 'edge') {
+            // Use execFile for better security (no shell interpretation)
+            execFile('edge-tts', ['--voice', voice, '--text', safeText, '--write-media', outputPath], 
+                { timeout: CONFIG.ttsGenerateTimeout }, (err) => {
                     clearTimeout(timeout);
                     if (err) reject(err);
                     else resolve(outputPath);
                 });
-                break;
-
-            case 'pollinations':
-                const encoded = encodeURIComponent(safeText);
-                const file = fs.createWriteStream(outputPath);
-                https.get(`https://text.pollinations.ai/${encoded}?model=openai-audio&voice=${voice}`, res => {
-                    clearTimeout(timeout);
-                    if (res.statusCode !== 200) { file.close(); return reject(new Error(`HTTP ${res.statusCode}`)); }
-                    res.pipe(file);
-                    file.on('finish', () => { file.close(); resolve(outputPath); });
-                }).on('error', (e) => { clearTimeout(timeout); reject(e); });
-                break;
-
-            case 'elevenlabs':
-                (async () => {
-                    try {
-                        const apiKey = process.env.ELEVENLABS_API_KEY;
-                        if (!apiKey) throw new Error('ELEVENLABS_API_KEY not set');
-                        const response = await httpRequestBinary({
-                            hostname: 'api.elevenlabs.io',
-                            path: `/v1/text-to-speech/${voice}`,
-                            method: 'POST',
-                            headers: { 'Accept': 'audio/mpeg', 'Content-Type': 'application/json', 'xi-api-key': apiKey }
-                        }, JSON.stringify({ text: safeText, model_id: 'eleven_multilingual_v2' }));
-                        clearTimeout(timeout);
-                        fs.writeFileSync(outputPath, response);
-                        resolve(outputPath);
-                    } catch (e) { clearTimeout(timeout); reject(e); }
-                })();
-                break;
-
-            default:
-                exec(`edge-tts --voice "id-ID-GadisNeural" --text "${safeText}" --write-media "${outputPath}"`, { timeout: CONFIG.ttsGenerateTimeout }, (err) => {
+        } else if (provider === 'pollinations') {
+            const encoded = encodeURIComponent(safeText);
+            const file = fs.createWriteStream(outputPath);
+            https.get(`https://text.pollinations.ai/${encoded}?model=openai-audio&voice=${voice}`, res => {
+                clearTimeout(timeout);
+                if (res.statusCode !== 200) { file.close(); return reject(new Error(`HTTP ${res.statusCode}`)); }
+                res.pipe(file);
+                file.on('finish', () => { file.close(); resolve(outputPath); });
+            }).on('error', (e) => { clearTimeout(timeout); reject(e); });
+        } else {
+            // Fallback to edge
+            execFile('edge-tts', ['--voice', 'id-ID-GadisNeural', '--text', safeText, '--write-media', outputPath],
+                { timeout: CONFIG.ttsGenerateTimeout }, (err) => {
                     clearTimeout(timeout);
                     if (err) reject(err);
                     else resolve(outputPath);
@@ -1134,42 +899,35 @@ function concatenateAudioFiles(inputFiles, outputPath) {
         try { fs.writeFileSync(listPath, listContent); }
         catch (e) { return reject(e); }
 
-        exec(`ffmpeg -f concat -safe 0 -i "${listPath}" -c:a libmp3lame -q:a 2 "${outputPath}" -y`, { timeout: CONFIG.ttsConcatTimeout }, (err) => {
-            cleanupFile(listPath);
-            if (err) reject(err);
-            else resolve(outputPath);
-        });
+        execFile('ffmpeg', ['-f', 'concat', '-safe', '0', '-i', listPath, '-c:a', 'libmp3lame', '-q:a', '2', outputPath, '-y'],
+            { timeout: CONFIG.ttsConcatTimeout }, (err) => {
+                cleanupFile(listPath);
+                if (err) reject(err);
+                else resolve(outputPath);
+            });
     });
 }
 
-async function generateTTS(guildId, text, progressCallback = null) {
+async function generateTTS(guildId, text) {
     const s = getSettings(guildId);
     ensureTempDir();
 
-    const chunks = splitTextForTTS(text, CONFIG.ttsMaxChunkLength);
+    const chunks = splitTextForTTS(text);
     if (chunks.length === 0) return null;
 
     const sessionId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const chunkFiles = [];
 
-    console.log(`🔊 TTS: ${chunks.length} chunks`);
-
     try {
         for (let i = 0; i < chunks.length; i++) {
-            const chunkPath = path.join(CONFIG.tempPath, `tts_${sessionId}_chunk${i}.mp3`);
-            if (progressCallback) progressCallback(i + 1, chunks.length);
-
+            const chunkPath = path.join(CONFIG.tempPath, `tts_${sessionId}_${i}.mp3`);
             try {
                 await generateSingleTTSChunk(chunks[i], s.ttsVoice, s.ttsProvider, chunkPath);
-                if (fs.existsSync(chunkPath) && fs.statSync(chunkPath).size > 0) chunkFiles.push(chunkPath);
+                if (fs.existsSync(chunkPath) && fs.statSync(chunkPath).size > 0) {
+                    chunkFiles.push(chunkPath);
+                }
             } catch (e) {
                 console.error(`TTS chunk ${i} error:`, e.message);
-                if (s.ttsProvider !== 'edge') {
-                    try {
-                        await generateSingleTTSChunk(chunks[i], 'id-ID-GadisNeural', 'edge', chunkPath);
-                        if (fs.existsSync(chunkPath)) chunkFiles.push(chunkPath);
-                    } catch (e2) {}
-                }
             }
         }
 
@@ -1178,17 +936,16 @@ async function generateTTS(guildId, text, progressCallback = null) {
         if (chunkFiles.length === 1) return { type: 'single', file: chunkFiles[0], sessionId };
 
         const combinedPath = path.join(CONFIG.tempPath, `tts_${sessionId}_combined.mp3`);
-
         try {
             await concatenateAudioFiles(chunkFiles, combinedPath);
             cleanupFiles(chunkFiles);
-            return { type: 'combined', file: combinedPath, sessionId, chunkCount: chunks.length };
-        } catch (e) {
-            return { type: 'chunks', files: chunkFiles, sessionId, chunkCount: chunks.length };
+            return { type: 'combined', file: combinedPath, sessionId };
+        } catch {
+            return { type: 'chunks', files: chunkFiles, sessionId };
         }
 
     } catch (error) {
-        cleanupSessionFiles(sessionId);
+        cleanupFiles(chunkFiles);
         throw error;
     }
 }
@@ -1197,12 +954,9 @@ async function generateTTS(guildId, text, progressCallback = null) {
 
 function resetVoiceTimeout(guildId) {
     if (voiceTimeouts.has(guildId)) clearTimeout(voiceTimeouts.get(guildId));
-
     const timeout = setTimeout(() => {
-        const conn = voiceConnections.get(guildId);
-        if (conn) leaveVoiceChannel({ id: guildId });
+        leaveVoiceChannel({ id: guildId });
     }, CONFIG.voiceInactivityTimeout);
-
     voiceTimeouts.set(guildId, timeout);
 }
 
@@ -1212,7 +966,7 @@ async function joinUserVoiceChannel(member, guild) {
 
     try {
         const existingConn = getVoiceConnection(guild.id);
-        if (existingConn && existingConn.joinConfig.channelId === vc.id) {
+        if (existingConn?.joinConfig?.channelId === vc.id) {
             resetVoiceTimeout(guild.id);
             return { success: true, channel: vc, alreadyConnected: true };
         }
@@ -1301,7 +1055,7 @@ function processNextInQueue(guildId) {
         const resource = createAudioResource(next.file, { inputType: StreamType.Arbitrary });
         player.play(resource);
         resetVoiceTimeout(guildId);
-    } catch (e) {
+    } catch {
         cleanupFile(next.file);
         processNextInQueue(guildId);
     }
@@ -1338,12 +1092,12 @@ async function sendTTSAsFile(channel, ttsResult) {
         if (ttsResult.type === 'single' || ttsResult.type === 'combined') {
             filePath = ttsResult.file;
         } else if (ttsResult.type === 'chunks') {
-            const combinedPath = path.join(CONFIG.tempPath, `tts_${ttsResult.sessionId}_forfile.mp3`);
+            const combinedPath = path.join(CONFIG.tempPath, `tts_${ttsResult.sessionId}_file.mp3`);
             try {
                 await concatenateAudioFiles(ttsResult.files, combinedPath);
                 filePath = combinedPath;
                 cleanup = ttsResult.files;
-            } catch (e) {
+            } catch {
                 filePath = ttsResult.files[0];
                 cleanup = ttsResult.files.slice(1);
             }
@@ -1355,7 +1109,6 @@ async function sendTTSAsFile(channel, ttsResult) {
         cleanupFile(filePath);
         cleanupFiles(cleanup);
         return true;
-
     } catch (e) {
         console.error('TTS file error:', e.message);
         return false;
@@ -1369,7 +1122,6 @@ function createSettingsEmbed(guildId) {
     const ai = AI_PROVIDERS[s.aiProvider];
     const tts = TTS_PROVIDERS[s.ttsProvider];
     const m = getModelInfo(s.aiProvider, s.aiModel);
-    const totalModels = Object.values(AI_PROVIDERS).reduce((acc, p) => acc + p.models.length, 0);
 
     const searchStatus = (CONFIG.tavilyApiKey || CONFIG.serperApiKey)
         ? (s.searchEnabled ? '🟢 On' : '🔴 Off')
@@ -1378,13 +1130,13 @@ function createSettingsEmbed(guildId) {
     return new EmbedBuilder()
         .setColor(0x5865F2)
         .setTitle('⚙️ Aria Settings')
-        .setDescription(`**${totalModels}** models • Search: ${searchStatus}`)
+        .setDescription(`Search: ${searchStatus} | Memory: ${CONFIG.maxConversationMessages} msgs`)
         .addFields(
             { name: '🧠 AI', value: `**${ai?.name}**\n${m.name}`, inline: true },
             { name: '🔊 TTS', value: `**${tts?.name}**\n${s.ttsVoice.split('-').pop()}`, inline: true },
             { name: '📝 Mode', value: s.mode === 'voice' ? '🔊 Voice' : '📝 Text', inline: true }
         )
-        .setFooter({ text: 'Search: Serper + Tavily | Memory: Unlimited' })
+        .setFooter({ text: 'v2.12.0 | Rate limit: 20 req/min' })
         .setTimestamp();
 }
 
@@ -1392,8 +1144,7 @@ function createAIProviderMenu(guildId) {
     const s = getSettings(guildId);
     const opts = Object.entries(AI_PROVIDERS).map(([k, p]) => {
         const ok = !p.requiresKey || process.env[p.keyEnv];
-        const n = p.models.filter(m => !['guard', 'stt'].includes(m.category)).length;
-        return { label: p.name.slice(0, 25), value: k, description: `${n} models`, default: k === s.aiProvider, emoji: ok ? '🟢' : '🔴' };
+        return { label: p.name.slice(0, 25), value: k, description: `${p.models.length} models`, default: k === s.aiProvider, emoji: ok ? '🟢' : '🔴' };
     });
     return new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('sel_ai').setPlaceholder('🧠 AI Provider').addOptions(opts));
 }
@@ -1403,10 +1154,9 @@ function createAIModelMenu(guildId) {
     const p = AI_PROVIDERS[s.aiProvider];
     if (!p) return null;
 
-    const chatModels = p.models.filter(m => !['guard', 'stt'].includes(m.category));
-    const opts = chatModels.slice(0, 25).map(m => ({
+    const opts = p.models.slice(0, 25).map(m => ({
         label: m.name.slice(0, 25),
-        description: m.version.slice(0, 50),
+        description: `${m.version}${m.category === 'experimental' ? ' ⚠️' : ''}`,
         value: m.id,
         default: m.id === s.aiModel
     }));
@@ -1419,7 +1169,7 @@ function createTTSProviderMenu(guildId) {
     const s = getSettings(guildId);
     const opts = Object.entries(TTS_PROVIDERS).map(([k, p]) => ({
         label: p.name, value: k, description: `${p.voices.length} voices`,
-        default: k === s.ttsProvider, emoji: (!p.requiresKey || process.env[p.keyEnv]) ? '🟢' : '🔴'
+        default: k === s.ttsProvider, emoji: '🟢'
     }));
     return new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('sel_tts').setPlaceholder('🔊 TTS').addOptions(opts));
 }
@@ -1443,12 +1193,23 @@ function createModeButtons(guildId) {
     );
 }
 
-// ==================== HANDLERS ====================
+// ==================== MESSAGE HANDLERS ====================
 
 async function handleAIMessage(msg, query) {
     const guildId = msg.guild.id;
-    const oderId = msg.author.id;
+    const userId = msg.author.id;
     const s = getSettings(guildId);
+
+    // Rate limit check
+    const rateCheck = checkRateLimit(userId);
+    if (!rateCheck.allowed) {
+        return msg.reply(`⏳ Rate limited. Tunggu ${rateCheck.waitTime}s`);
+    }
+
+    // Input validation
+    if (query.length > 4000) {
+        return msg.reply('❌ Pesan terlalu panjang (max 4000 karakter)');
+    }
 
     const isVoiceMode = s.mode === 'voice';
     let inVoiceChannel = false;
@@ -1462,7 +1223,7 @@ async function handleAIMessage(msg, query) {
     await msg.channel.sendTyping();
 
     try {
-        const response = await callAI(guildId, oderId, query, isVoiceMode);
+        const response = await callAI(guildId, userId, query, isVoiceMode);
 
         const searchIcon = response.searched ? ' 🔍' : '';
         const modelInfo = `*${response.model} • ${response.latency}ms${searchIcon}*`;
@@ -1500,81 +1261,29 @@ async function handleAIMessage(msg, query) {
 
 async function showSettings(msg) {
     if (!isAdmin(msg.author.id)) return msg.reply('❌ Admin only');
-    const comps = [createAIProviderMenu(msg.guild.id), createAIModelMenu(msg.guild.id), createTTSProviderMenu(msg.guild.id), createTTSVoiceMenu(msg.guild.id), createModeButtons(msg.guild.id)].filter(Boolean);
+    const comps = [
+        createAIProviderMenu(msg.guild.id),
+        createAIModelMenu(msg.guild.id),
+        createTTSProviderMenu(msg.guild.id),
+        createTTSVoiceMenu(msg.guild.id),
+        createModeButtons(msg.guild.id)
+    ].filter(Boolean);
     await msg.reply({ embeds: [createSettingsEmbed(msg.guild.id)], components: comps });
 }
 
 async function showHelp(msg) {
-    const searchOk = CONFIG.tavilyApiKey || CONFIG.serperApiKey ? '✅' : '❌';
-    const geminiOk = CONFIG.geminiApiKey ? '✅' : '❌';
+    const helpText = `**🤖 Aria AI Bot v2.12**
 
-    const helpText = `**🤖 Aria AI Bot v2.11**
+**Chat:** \`.ai <pertanyaan>\` atau mention
+**Voice:** \`.join\` \`.leave\` \`.speak <teks>\` \`.stop\`
+**Search:** \`.search <query>\`
+**Memory:** \`.memory\` \`.clear\`
+**Settings:** \`.settings\` (admin)
 
-**Chat:**
-• \`.ai <pertanyaan>\` - Tanya AI
-• \`@Aria <pertanyaan>\` - Mention
-
-**Voice:**
-• \`.join\` - Gabung voice
-• \`.leave\` - Keluar voice
-• \`.speak <teks>\` - TTS manual
-• \`.stop\` - Stop audio
-
-**Search:** ${searchOk}
-• Otomatis search untuk info terkini
-• \`.search <query>\` - Manual search
-
-**Features:**
-• Gemini AI: ${geminiOk}
-• Memory: Unlimited
-• TTS: Natural voice
-
-**Commands:**
-• \`.memory\` / \`.clear\`
-• \`.status\` / \`.settings\``;
+📊 Rate limit: 20 req/min
+🧠 Memory: ${CONFIG.maxConversationMessages} messages/user`;
 
     await msg.reply(helpText);
-}
-
-async function handleSearch(msg, query) {
-    if (!query) return msg.reply('❓ `.search berita hari ini`');
-    if (!CONFIG.tavilyApiKey && !CONFIG.serperApiKey) return msg.reply('❌ No search API configured');
-
-    await msg.channel.sendTyping();
-
-    try {
-        const result = await performSearch(query);
-        if (!result) return msg.reply('❌ No results found');
-
-        const display = formatSearchForDisplay(result, query);
-        const parts = splitMessage(display);
-        for (const part of parts) await msg.channel.send(part);
-
-    } catch (e) {
-        await msg.reply(`❌ Error: ${e.message}`);
-    }
-}
-
-async function handleSpeak(msg, text) {
-    if (!text) return msg.reply('❓ `.speak Halo dunia`');
-
-    const statusMsg = await msg.reply('🔊 Generating...');
-
-    try {
-        const ttsResult = await generateTTS(msg.guild.id, text);
-        if (!ttsResult) return statusMsg.edit('❌ TTS failed');
-
-        const player = audioPlayers.get(msg.guild.id);
-        if (player && msg.member?.voice?.channel) {
-            await playTTSInVoice(msg.guild.id, ttsResult);
-            await statusMsg.edit('🔊 Playing...');
-        } else {
-            await sendTTSAsFile(msg.channel, ttsResult);
-            await statusMsg.delete().catch(() => {});
-        }
-    } catch (e) {
-        await statusMsg.edit(`❌ ${e.message}`);
-    }
 }
 
 async function handleStop(msg) {
@@ -1597,7 +1306,7 @@ async function handleStop(msg) {
 
 // ==================== INTERACTIONS ====================
 
-client.on('interactionCreate', async (int) => {
+client.on(Events.InteractionCreate, async (int) => {
     if (!int.isStringSelectMenu() && !int.isButton()) return;
     if (!isAdmin(int.user.id)) return int.reply({ content: '❌ Admin only', ephemeral: true });
 
@@ -1609,8 +1318,7 @@ client.on('interactionCreate', async (int) => {
             if (!p) return int.reply({ content: '❌ Invalid', ephemeral: true });
             if (p.requiresKey && !process.env[p.keyEnv]) return int.reply({ content: `❌ ${p.keyEnv} missing`, ephemeral: true });
             updateSettings(guildId, 'aiProvider', int.values[0]);
-            const chatModels = p.models.filter(m => !['guard', 'stt'].includes(m.category));
-            if (chatModels.length > 0) updateSettings(guildId, 'aiModel', chatModels[0].id);
+            if (p.models.length > 0) updateSettings(guildId, 'aiModel', p.models[0].id);
         } else if (int.customId === 'sel_model') {
             updateSettings(guildId, 'aiModel', int.values[0]);
         } else if (int.customId === 'sel_tts') {
@@ -1634,7 +1342,13 @@ client.on('interactionCreate', async (int) => {
             updateSettings(guildId, 'searchEnabled', !s.searchEnabled);
         }
 
-        const comps = [createAIProviderMenu(guildId), createAIModelMenu(guildId), createTTSProviderMenu(guildId), createTTSVoiceMenu(guildId), createModeButtons(guildId)].filter(Boolean);
+        const comps = [
+            createAIProviderMenu(guildId),
+            createAIModelMenu(guildId),
+            createTTSProviderMenu(guildId),
+            createTTSVoiceMenu(guildId),
+            createModeButtons(guildId)
+        ].filter(Boolean);
         await int.update({ embeds: [createSettingsEmbed(guildId)], components: comps });
 
     } catch (e) {
@@ -1642,9 +1356,9 @@ client.on('interactionCreate', async (int) => {
     }
 });
 
-// ==================== MESSAGES ====================
+// ==================== MESSAGE HANDLING ====================
 
-client.on('messageCreate', async (msg) => {
+client.on(Events.MessageCreate, async (msg) => {
     if (msg.author.bot || !msg.guild) return;
 
     const isMentioned = msg.mentions.has(client.user);
@@ -1667,12 +1381,21 @@ client.on('messageCreate', async (msg) => {
                 await handleAIMessage(msg, args.join(' '));
                 break;
 
-            case 'search': case 'cari':
-                await handleSearch(msg, args.join(' '));
-                break;
-
             case 'speak': case 'say': case 'tts':
-                await handleSpeak(msg, args.join(' '));
+                if (!args.join(' ')) return msg.reply('❓ `.speak Halo`');
+                const statusMsg = await msg.reply('🔊 Generating...');
+                try {
+                    const ttsResult = await generateTTS(msg.guild.id, args.join(' '));
+                    if (!ttsResult) return statusMsg.edit('❌ TTS failed');
+                    const player = audioPlayers.get(msg.guild.id);
+                    if (player && msg.member?.voice?.channel) {
+                        await playTTSInVoice(msg.guild.id, ttsResult);
+                        await statusMsg.edit('🔊 Playing...');
+                    } else {
+                        await sendTTSAsFile(msg.channel, ttsResult);
+                        await statusMsg.delete().catch(() => {});
+                    }
+                } catch (e) { await statusMsg.edit(`❌ ${e.message}`); }
                 break;
 
             case 'stop': case 'skip':
@@ -1681,7 +1404,7 @@ client.on('messageCreate', async (msg) => {
 
             case 'join': case 'j':
                 const jr = await joinUserVoiceChannel(msg.member, msg.guild);
-                await msg.reply(jr.success ? (jr.alreadyConnected ? `✅ Di **${jr.channel.name}**` : `🔊 Joined **${jr.channel.name}**`) : `❌ ${jr.error}`);
+                await msg.reply(jr.success ? `🔊 ${jr.alreadyConnected ? 'Already in' : 'Joined'} **${jr.channel.name}**` : `❌ ${jr.error}`);
                 break;
 
             case 'leave': case 'dc':
@@ -1693,18 +1416,17 @@ client.on('messageCreate', async (msg) => {
                 break;
 
             case 'status':
-                let text = '**📊 Status**\n\n';
-                text += `**Search:** ${CONFIG.serperApiKey ? '🟢 Serper' : '🔴'} ${CONFIG.tavilyApiKey ? '🟢 Tavily' : '🔴'}\n`;
-                text += `**Gemini:** ${CONFIG.geminiApiKey ? '🟢' : '🔴'}\n`;
-                text += `**Convos:** ${conversations.size}\n`;
-                text += `**Voice:** ${voiceConnections.size}`;
+                let text = `**📊 Status v2.12**\n`;
+                text += `Gemini: ${CONFIG.geminiApiKey ? '🟢' : '🔴'}\n`;
+                text += `Search: ${CONFIG.serperApiKey ? '🟢 Serper' : '🔴'} ${CONFIG.tavilyApiKey ? '🟢 Tavily' : '🔴'}\n`;
+                text += `Convos: ${conversations.size} | Voice: ${voiceConnections.size}`;
                 await msg.reply(text);
                 break;
 
             case 'memory': case 'mem':
                 const info = getConversationInfo(msg.guild.id, msg.author.id);
                 if (!info) return msg.reply('📭 No conversation');
-                await msg.reply(`**🧠 Memory**\n📝 ${info.messageCount} msgs\n⏱️ ${info.ageMinutes} min\n♾️ Unlimited`);
+                await msg.reply(`**🧠 Memory**\n📝 ${info.messageCount}/${info.maxMessages} msgs\n⏱️ ${info.ageMinutes} min`);
                 break;
 
             case 'clear': case 'reset':
@@ -1731,13 +1453,13 @@ client.on('messageCreate', async (msg) => {
     }
 });
 
-// ==================== READY ====================
+// ==================== READY (FIXED) ====================
 
-client.once('ready', () => {
+client.once(Events.ClientReady, () => {
     console.log('\n' + '='.repeat(50));
     console.log(`🤖 ${client.user.tag} online!`);
     console.log(`📡 ${client.guilds.cache.size} servers`);
-    console.log(`📦 v2.11.0 - Natural Search`);
+    console.log(`📦 v2.12.0 - Optimized`);
     console.log('='.repeat(50));
     console.log(`🔍 Serper: ${CONFIG.serperApiKey ? '✅' : '❌'}`);
     console.log(`🔍 Tavily: ${CONFIG.tavilyApiKey ? '✅' : '❌'}`);
@@ -1751,9 +1473,10 @@ client.once('ready', () => {
 
 // ==================== ERROR HANDLING ====================
 
-process.on('unhandledRejection', (e) => console.error('Unhandled:', e));
-process.on('uncaughtException', (e) => console.error('Uncaught:', e));
+process.on('unhandledRejection', (e) => console.error('Unhandled:', e.message || e));
+process.on('uncaughtException', (e) => console.error('Uncaught:', e.message || e));
 process.on('SIGTERM', () => {
+    console.log('Shutting down...');
     voiceConnections.forEach((c) => c.destroy());
     client.destroy();
     process.exit(0);
