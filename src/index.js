@@ -520,34 +520,62 @@ const AI_PROVIDERS = {
     },
 
     openrouter: {
-        name: 'OpenRouter',
-        requiresKey: true,
-        keyEnv: 'OPENROUTER_API_KEY',
-        models: [
-            { id: 'google/gemini-2.5-flash-preview:free', name: 'Gemini 2.5 Flash', version: '2.5-flash', category: 'google' },
-            { id: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash', version: '2.0-flash', category: 'google' },
-            { id: 'thudm/glm-4-air:free', name: 'GLM-4.5 Air', version: 'GLM-4.5', category: 'thudm' },
-            { id: 'meta-llama/llama-4-maverick:free', name: 'Llama 4 Maverick', version: 'Maverick', category: 'meta' },
-            { id: 'meta-llama/llama-4-scout:free', name: 'Llama 4 Scout', version: 'Scout', category: 'meta' },
-            { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B', version: '70B', category: 'meta' },
-            { id: 'moonshotai/kimi-vl-a3b-thinking:free', name: 'Kimi VL Thinking', version: 'VL-A3B', category: 'moonshot' },
-            { id: 'nvidia/llama-3.1-nemotron-nano-8b-v1:free', name: 'Nemotron Nano 8B', version: '8B', category: 'nvidia' },
-            { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 24B', version: '24B', category: 'mistral' },
-            { id: 'openrouter/optimus-alpha', name: 'Optimus Alpha', version: 'Alpha', category: 'openrouter' },
-            { id: 'openrouter/quasar-alpha', name: 'Quasar Alpha', version: 'Alpha', category: 'openrouter' },
-            { id: 'deepseek/deepseek-v3-base:free', name: 'DeepSeek V3 Base', version: 'V3-base', category: 'deepseek' },
-            { id: 'deepseek/deepseek-chat-v3-0324:free', name: 'DeepSeek Chat V3', version: 'V3-chat', category: 'deepseek' },
-            { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek R1', version: 'R1', category: 'deepseek' },
-            { id: 'deepseek/deepseek-r1-zero:free', name: 'DeepSeek R1 Zero', version: 'R1-zero', category: 'deepseek' },
-            { id: 'qwen/qwen2.5-vl-3b-instruct:free', name: 'Qwen 2.5 VL 3B', version: 'VL-3B', category: 'qwen' },
-            { id: 'qwen/qwen3-32b:free', name: 'Qwen3 32B', version: '32B', category: 'qwen' },
-            { id: 'nousresearch/deephermes-3-llama-3-8b-preview:free', name: 'DeepHermes 3 8B', version: '8B', category: 'nous' },
-            { id: 'allenai/olmo-3.1-32b-think:free', name: 'OLMo 3.1 32B', version: '32B', category: 'allenai' },
-            { id: 'amazon/nova-micro-v1', name: 'Nova Micro', version: 'Micro', category: 'amazon' },
-            { id: 'amazon/nova-lite-v1', name: 'Nova Lite', version: 'Lite', category: 'amazon' },
-            { id: 'amazon/nova-pro-v1', name: 'Nova Pro', version: 'Pro', category: 'amazon' }
-        ]
-    },
+    name: 'OpenRouter',
+    requiresKey: true,
+    keyEnv: 'OPENROUTER_API_KEY',
+    models: [
+        // Google
+        { id: 'google/gemini-2.5-flash-preview:free', name: 'Gemini 2.5 Flash', version: '2.5-flash', category: 'google' },
+        { id: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash', version: '2.0-flash', category: 'google' },
+        { id: 'google/gemma-3n-2b:free', name: 'Gemma 3n 2B', version: '3n-2B', category: 'google' },
+        
+        // Upstage
+        { id: 'upstage/trinity-large-preview:free', name: 'Trinity Large Preview', version: 'Large', category: 'upstage' },
+        { id: 'upstage/solar-pro-3:free', name: 'Solar Pro 3', version: 'Pro-3', category: 'upstage' },
+        
+        // Liquid
+        { id: 'liquid/lfm-2.5-1.2b-thinking:free', name: 'LFM2.5-1.2B-Thinking', version: '2.5-1.2B', category: 'liquid' },
+        { id: 'liquid/lfm-2.5-1.2b-instruct:free', name: 'LFM2.5-1.2B-Instruct', version: '2.5-1.2B', category: 'liquid' },
+        
+        // Black Forest Labs
+        { id: 'black-forest-labs/flux-2-klein-4b', name: 'FLUX.2 Klein 4B', version: 'Klein-4B', category: 'black-forest' },
+        
+        // AllenAI
+        { id: 'allenai/molmo2-8b:free', name: 'Molmo2 8B', version: '8B', category: 'allenai' },
+        
+        // Seedream
+        { id: 'seedream/seedream-4.5', name: 'Seedream 4.5', version: '4.5', category: 'seedream' },
+        
+        // THUDM
+        { id: 'thudm/glm-4-air:free', name: 'GLM 4.5 Air', version: '4.5-Air', category: 'thudm' },
+        
+        // DeepSeek
+        { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek R1', version: 'R1', category: 'deepseek' },
+        { id: 'deepseek/deepseek-r1-zero:free', name: 'DeepSeek R1 Zero', version: 'R1-zero', category: 'deepseek' },
+        { id: 'deepseek/deepseek-r1t-chimera:free', name: 'R1T Chimera', version: 'R1T', category: 'deepseek' },
+        { id: 'deepseek/deepseek-r1t2-chimera:free', name: 'DeepSeek R1T2 Chimera', version: 'R1T2', category: 'deepseek' },
+        { id: 'deepseek/deepseek-r1-0528:free', name: 'R1 0528', version: '0528', category: 'deepseek' },
+        
+        // Meta Llama
+        { id: 'meta-llama/llama-4-maverick:free', name: 'Llama 4 Maverick', version: 'Maverick', category: 'meta' },
+        { id: 'meta-llama/llama-4-scout:free', name: 'Llama 4 Scout', version: 'Scout', category: 'meta' },
+        { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B', version: '70B', category: 'meta' },
+        
+        // Mistral
+        { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 3.1 24B', version: '24B', category: 'mistral' },
+        
+        // Qwen
+        { id: 'qwen/qwen3-32b:free', name: 'Qwen3 32B', version: '32B', category: 'qwen' },
+        
+        // Uncensored
+        { id: 'openrouter/uncensored:free', name: 'Uncensored', version: 'v1', category: 'special' },
+        
+        // Amazon Nova
+        { id: 'amazon/nova-micro-v1', name: 'Nova Micro', version: 'Micro', category: 'amazon' },
+        { id: 'amazon/nova-lite-v1', name: 'Nova Lite', version: 'Lite', category: 'amazon' },
+        { id: 'amazon/nova-pro-v1', name: 'Nova Pro', version: 'Pro', category: 'amazon' }
+    ]
+},
 
     huggingface: {
         name: 'HuggingFace',
