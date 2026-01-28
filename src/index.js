@@ -2,6 +2,11 @@ require('dotenv').config();
 const { startBot } = require('./bot');
 const { createServer } = require('http');
 const logger = require('./utils/logger');
+const { checkVoiceDependencies } = require('./utils/voice');
+
+// Check voice dependencies sebelum start
+logger.info('Checking voice dependencies...');
+checkVoiceDependencies();
 
 // Simple HTTP server untuk Render health check
 const server = createServer((req, res) => {
