@@ -6,9 +6,9 @@ const config = {
     prefix: process.env.BOT_PREFIX || '!',
     botName: process.env.BOT_NAME || 'Aria',
     
-    // Groq AI
+    // Groq AI - UPDATE MODEL DI SINI
     groqApiKey: process.env.GROQ_API_KEY,
-    groqModel: process.env.GROQ_MODEL || 'llama-3.1-70b-versatile',
+    groqModel: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',  // ✅ UPDATED!
     
     // TTS
     ttsVoice: process.env.TTS_VOICE || 'id-ID-GadisNeural',
