@@ -1,7 +1,7 @@
 // ============================================================
-//         DISCORD AI BOT - MULTI PROVIDER v2.6
+//         DISCORD AI BOT - MULTI PROVIDER v2.9
 //         Command: .ai | Mention Support | Plain Text Response
-//         Memory: 1 Hour / 30 Messages | Universal Voice
+//         Memory: Unlimited | Universal Voice | Enhanced Long TTS
 // ============================================================
 
 const { 
@@ -13,7 +13,7 @@ const {
     ButtonBuilder,
     ButtonStyle,
     ActivityType,
-    PermissionFlagsBits
+    AttachmentBuilder
 } = require('discord.js');
 const {
     joinVoiceChannel,
@@ -22,13 +22,37 @@ const {
     AudioPlayerStatus,
     VoiceConnectionStatus,
     entersState,
-    getVoiceConnection
+    getVoiceConnection,
+    StreamType
 } = require('@discordjs/voice');
-const { exec } = require('child_process');
+const { exec, execSync, spawn } = require('child_process');
 const { createServer } = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+
+// ==================== START HEALTH SERVER IMMEDIATELY ====================
+const startTime = Date.now();
+const healthServer = createServer((req, res) => {
+    const status = {
+        status: 'ok',
+        bot: client?.user?.tag || 'starting...',
+        version: '2.9.0',
+        uptime: Math.floor((Date.now() - startTime) / 1000),
+        guilds: client?.guilds?.cache?.size || 0,
+        conversations: conversations?.size || 0,
+        activeVoice: voiceConnections?.size || 0,
+        memory: 'unlimited',
+        tts: {
+            maxChars: CONFIG.ttsMaxTotalLength,
+            chunkSize: CONFIG.ttsMaxChunkLength,
+            provider: 'edge-tts'
+        }
+    };
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(status, null, 2));
+});
+healthServer.listen(process.env.PORT || 3000, () => console.log('🌐 Health server ready'));
 
 // ==================== KONFIGURASI ====================
 const CONFIG = {
@@ -36,9 +60,15 @@ const CONFIG = {
     prefix: '.',
     adminIds: (process.env.ADMIN_IDS || '').split(',').filter(Boolean),
     dataPath: './data/settings.json',
-    // Conversation settings
-    conversationTimeout: 60 * 60 * 1000, // 1 hour in milliseconds
-    maxConversationMessages: 30 // Max messages before soft reset
+    tempPath: './temp',
+    // TTS Configuration - optimized for long text
+    ttsMaxChunkLength: 1000,      // Characters per TTS chunk (increased)
+    ttsMaxTotalLength: 10000,     // Max total TTS length (increased significantly)
+    ttsMinChunkLength: 50,        // Minimum chunk size
+    ttsConcatTimeout: 120000,     // 2 minutes timeout for concat
+    ttsGenerateTimeout: 60000,    // 1 minute per chunk
+    // Voice settings
+    voiceInactivityTimeout: 300000, // 5 minutes
 };
 
 // ==================== SYSTEM PROMPT ====================
@@ -61,54 +91,32 @@ const MASTER_SYSTEM_PROMPT = `Kamu adalah Aria, asisten AI yang cerdas dan menye
 1. JANGAN mengarang informasi yang tidak kamu ketahui
 2. Akui keterbatasan dengan jujur
 3. Jika diminta pendapat, berikan perspektif seimbang
-4. Ingat konteks percakapan sebelumnya
-5. Untuk voice mode: jawab lebih ringkas (2-4 kalimat)
-
-## CONTOH RESPONS YANG BAIK:
-- User: "Apa itu AI?"
-- Aria: "AI atau Artificial Intelligence adalah teknologi yang memungkinkan mesin untuk 'berpikir' dan belajar seperti manusia. Bayangkan seperti otak digital yang bisa mengenali pola, membuat keputusan, dan bahkan ngobrol kayak kita sekarang 😄 Ada banyak jenisnya, dari yang sederhana kayak filter spam email, sampai yang kompleks kayak self-driving car. Ada yang mau kamu ketahui lebih dalam?"`;
+4. Ingat konteks percakapan sebelumnya dengan baik
+5. Untuk voice mode: jawab lebih ringkas (2-4 kalimat) agar tidak terlalu panjang didengarkan`;
 
 // ==================== AI PROVIDERS ====================
 const AI_PROVIDERS = {
-    // ========== GROQ - Updated July 2025 ==========
     groq: {
         name: 'Groq',
         requiresKey: true,
         keyEnv: 'GROQ_API_KEY',
         models: [
-            // === Production Models ===
             { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', version: 'v3.3', category: 'production' },
             { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B', version: 'v3.1', category: 'production' },
             { id: 'openai/gpt-oss-120b', name: 'GPT OSS 120B', version: '120B', category: 'production' },
             { id: 'openai/gpt-oss-20b', name: 'GPT OSS 20B', version: '20B', category: 'production' },
-            
-            // === Production Systems ===
             { id: 'groq/compound', name: 'Groq Compound', version: 'v1-system', category: 'system' },
             { id: 'groq/compound-mini', name: 'Groq Compound Mini', version: 'mini-system', category: 'system' },
-            
-            // === Preview Models ===
             { id: 'qwen/qwen3-32b', name: 'Qwen3 32B', version: '32B', category: 'preview' },
             { id: 'meta-llama/llama-4-maverick-17b-128e-instruct', name: 'Llama 4 Maverick', version: '17B-128E', category: 'preview' },
             { id: 'meta-llama/llama-4-scout-17b-16e-instruct', name: 'Llama 4 Scout', version: '17B-16E', category: 'preview' },
             { id: 'moonshotai/kimi-k2-instruct-0905', name: 'Kimi K2', version: '0905', category: 'preview' },
-            { id: 'openai/gpt-oss-safeguard-20b', name: 'GPT OSS Safeguard', version: '20B-safe', category: 'preview' },
-            
-            // === Guard Models ===
             { id: 'meta-llama/llama-guard-4-12b', name: 'Llama Guard 4', version: '12B', category: 'guard' },
-            { id: 'meta-llama/llama-prompt-guard-2-22m', name: 'Prompt Guard 2', version: '22M', category: 'guard' },
-            { id: 'meta-llama/llama-prompt-guard-2-86m', name: 'Prompt Guard 2 Large', version: '86M', category: 'guard' },
-            
-            // === TTS Models (Canopy Labs) ===
-            { id: 'canopylabs/orpheus-v1-english', name: 'Orpheus English TTS', version: 'v1', category: 'tts' },
-            { id: 'canopylabs/orpheus-arabic-saudi', name: 'Orpheus Arabic TTS', version: 'saudi', category: 'tts' },
-            
-            // === Whisper (Speech-to-Text) ===
             { id: 'whisper-large-v3', name: 'Whisper Large V3', version: 'v3', category: 'stt' },
-            { id: 'whisper-large-v3-turbo', name: 'Whisper Large V3 Turbo', version: 'v3-turbo', category: 'stt' }
+            { id: 'whisper-large-v3-turbo', name: 'Whisper V3 Turbo', version: 'v3-turbo', category: 'stt' }
         ]
     },
     
-    // ========== POLLINATIONS FREE ==========
     pollinations_free: {
         name: 'Pollinations (Free)',
         requiresKey: false,
@@ -134,7 +142,6 @@ const AI_PROVIDERS = {
         ]
     },
     
-    // ========== POLLINATIONS API ==========
     pollinations_api: {
         name: 'Pollinations (API)',
         requiresKey: true,
@@ -150,73 +157,34 @@ const AI_PROVIDERS = {
         ]
     },
     
-    // ========== OPENROUTER - Updated July 2025 ==========
     openrouter: {
         name: 'OpenRouter',
         requiresKey: true,
         keyEnv: 'OPENROUTER_API_KEY',
         models: [
-            // === January 2026 Models ===
-            { id: 'aetherclood/trinity-large-preview:free', name: 'Trinity Large Preview', version: 'preview-free', category: 'jan2026' },
-            { id: 'upstage/solar-pro-3:free', name: 'Solar Pro 3', version: 'v3-free', category: 'jan2026' },
-            { id: 'liquid/lfm-2.5-1.2b-thinking:free', name: 'LFM 2.5 Thinking', version: '1.2B-think', category: 'jan2026' },
-            { id: 'liquid/lfm-2.5-1.2b-instruct:free', name: 'LFM 2.5 Instruct', version: '1.2B-inst', category: 'jan2026' },
-            { id: 'black-forest-labs/flux-2-klein-4b', name: 'FLUX.2 Klein 4B', version: '4B', category: 'jan2026' },
-            { id: 'allenai/molmo-2-8b:free', name: 'Molmo2 8B', version: '8B-free', category: 'jan2026' },
-            
-            // === December 2025 Models ===
-            { id: 'deepseek/deepseek-r1t-chimera:free', name: 'R1T Chimera', version: 'R1T-free', category: 'dec2025' },
-            { id: 'black-forest-labs/flux-2-flex', name: 'FLUX.2 Flex', version: 'flex', category: 'dec2025' },
-            { id: 'black-forest-labs/flux-2-pro', name: 'FLUX.2 Pro', version: 'pro', category: 'dec2025' },
-            
-            // === October 2025 Models ===
-            { id: 'nvidia/nemotron-nano-12b-2-vl:free', name: 'Nemotron Nano 12B 2 VL', version: '12B-VL', category: 'oct2025' },
-            
-            // === September 2025 Models ===
-            { id: 'nvidia/nemotron-nano-9b-v2:free', name: 'Nemotron Nano 9B V2', version: '9B-v2', category: 'sep2025' },
-            { id: 'thudm/glm-4.5-air:free', name: 'GLM 4.5 Air', version: '4.5-air', category: 'sep2025' },
-            { id: 'google/gemma-3n-2b:free', name: 'Gemma 3n 2B', version: '3n-2B', category: 'sep2025' },
-            { id: 'deepseek/deepseek-r1t2-chimera:free', name: 'DeepSeek R1T2 Chimera', version: 'R1T2', category: 'sep2025' },
-            
-            // === May 2025 Models ===
-            { id: 'deepseek/deepseek-r1-0528:free', name: 'DeepSeek R1 0528', version: 'R1-0528', category: 'may2025' },
-            { id: 'google/gemma-3n-4b:free', name: 'Gemma 3n 4B', version: '3n-4B', category: 'may2025' },
-            
-            // === March 2025 Models ===
-            { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 3.1 24B', version: '24B-free', category: 'mar2025' },
-            { id: 'google/gemma-3-4b-it:free', name: 'Gemma 3 4B', version: '4B-free', category: 'mar2025' },
-            { id: 'google/gemma-3-12b-it:free', name: 'Gemma 3 12B', version: '12B-free', category: 'mar2025' },
-            { id: 'google/gemma-3-27b-it:free', name: 'Gemma 3 27B', version: '27B-free', category: 'mar2025' },
-            
-            // === Original Models ===
-            { id: 'qwen/qwen3-4b:free', name: 'Qwen3 4B', version: '4B-free', category: 'qwen' },
-            { id: 'qwen/qwen3-14b:free', name: 'Qwen3 14B', version: '14B-free', category: 'qwen' },
-            { id: 'qwen/qwen3-32b:free', name: 'Qwen3 32B', version: '32B-free', category: 'qwen' },
-            { id: 'qwen/qwen-2.5-72b-instruct:free', name: 'Qwen 2.5 72B', version: '72B-free', category: 'qwen' },
-            
-            { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek R1', version: 'R1-free', category: 'deepseek' },
-            { id: 'deepseek/deepseek-chat-v3-0324:free', name: 'DeepSeek V3', version: 'V3-free', category: 'deepseek' },
-            
-            { id: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash', version: '2.0-free', category: 'google' },
-            
-            { id: 'meta-llama/llama-3.2-3b-instruct:free', name: 'Llama 3.2 3B', version: '3B-free', category: 'meta' },
-            { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B', version: '70B-free', category: 'meta' },
-            
-            { id: 'mistralai/mistral-nemo:free', name: 'Mistral Nemo', version: 'Nemo-free', category: 'mistral' },
-            
-            { id: 'nvidia/llama-3.1-nemotron-70b-instruct:free', name: 'Nemotron 70B', version: '70B-free', category: 'nvidia' },
-            
-            { id: 'thudm/glm-4-9b:free', name: 'GLM 4 9B', version: '9B-free', category: 'thudm' },
-            { id: 'thudm/glm-z1-32b:free', name: 'GLM Z1 32B', version: '32B-free', category: 'thudm' },
-            
-            { id: 'microsoft/phi-3-mini-128k-instruct:free', name: 'Phi-3 Mini', version: 'mini-free', category: 'microsoft' },
-            { id: 'microsoft/phi-3-medium-128k-instruct:free', name: 'Phi-3 Medium', version: 'medium-free', category: 'microsoft' },
-            
-            { id: 'openchat/openchat-7b:free', name: 'OpenChat 7B', version: '7B-free', category: 'other' }
+            { id: 'aetherclood/trinity-large-preview:free', name: 'Trinity Large', version: 'preview-free' },
+            { id: 'upstage/solar-pro-3:free', name: 'Solar Pro 3', version: 'v3-free' },
+            { id: 'liquid/lfm-2.5-1.2b-thinking:free', name: 'LFM 2.5 Thinking', version: '1.2B-think' },
+            { id: 'deepseek/deepseek-r1t-chimera:free', name: 'R1T Chimera', version: 'R1T-free' },
+            { id: 'nvidia/nemotron-nano-12b-2-vl:free', name: 'Nemotron 12B VL', version: '12B-VL' },
+            { id: 'nvidia/nemotron-nano-9b-v2:free', name: 'Nemotron 9B V2', version: '9B-v2' },
+            { id: 'thudm/glm-4.5-air:free', name: 'GLM 4.5 Air', version: '4.5-air' },
+            { id: 'google/gemma-3n-2b:free', name: 'Gemma 3n 2B', version: '3n-2B' },
+            { id: 'deepseek/deepseek-r1-0528:free', name: 'DeepSeek R1 0528', version: 'R1-0528' },
+            { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 24B', version: '24B-free' },
+            { id: 'google/gemma-3-27b-it:free', name: 'Gemma 3 27B', version: '27B-free' },
+            { id: 'qwen/qwen3-32b:free', name: 'Qwen3 32B', version: '32B-free' },
+            { id: 'qwen/qwen-2.5-72b-instruct:free', name: 'Qwen 2.5 72B', version: '72B-free' },
+            { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek R1', version: 'R1-free' },
+            { id: 'deepseek/deepseek-chat-v3-0324:free', name: 'DeepSeek V3', version: 'V3-free' },
+            { id: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash', version: '2.0-free' },
+            { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B', version: '70B-free' },
+            { id: 'nvidia/llama-3.1-nemotron-70b-instruct:free', name: 'Nemotron 70B', version: '70B-free' },
+            { id: 'thudm/glm-z1-32b:free', name: 'GLM Z1 32B', version: '32B-free' },
+            { id: 'microsoft/phi-3-medium-128k-instruct:free', name: 'Phi-3 Medium', version: 'medium-free' }
         ]
     },
     
-    // ========== HUGGINGFACE ==========
     huggingface: {
         name: 'HuggingFace',
         requiresKey: true,
@@ -241,6 +209,8 @@ const TTS_PROVIDERS = {
             { id: 'en-US-JennyNeural', name: 'Jenny (EN Female)', lang: 'en' },
             { id: 'en-US-GuyNeural', name: 'Guy (EN Male)', lang: 'en' },
             { id: 'en-US-AriaNeural', name: 'Aria (EN Female)', lang: 'en' },
+            { id: 'en-US-ChristopherNeural', name: 'Christopher (EN Male)', lang: 'en' },
+            { id: 'en-GB-SoniaNeural', name: 'Sonia (UK Female)', lang: 'en' },
             { id: 'ja-JP-NanamiNeural', name: 'Nanami (JP Female)', lang: 'ja' },
             { id: 'ko-KR-SunHiNeural', name: 'SunHi (KR Female)', lang: 'ko' },
             { id: 'zh-CN-XiaoxiaoNeural', name: 'Xiaoxiao (CN Female)', lang: 'zh' }
@@ -268,15 +238,6 @@ const TTS_PROVIDERS = {
             { id: 'pNInz6obpgDQGcFmaJgB', name: 'Adam', lang: 'multi' },
             { id: 'ErXwobaYiN019PkySvjV', name: 'Antoni', lang: 'multi' }
         ]
-    },
-    groq_tts: {
-        name: 'Groq TTS (Orpheus)',
-        requiresKey: true,
-        keyEnv: 'GROQ_API_KEY',
-        voices: [
-            { id: 'canopylabs/orpheus-v1-english', name: 'Orpheus English', lang: 'en' },
-            { id: 'canopylabs/orpheus-arabic-saudi', name: 'Orpheus Arabic', lang: 'ar' }
-        ]
     }
 };
 
@@ -287,6 +248,7 @@ const DEFAULT_SETTINGS = {
     ttsProvider: 'edge',
     ttsVoice: 'id-ID-GadisNeural',
     mode: 'voice',
+    ttsOutput: 'auto',
     systemPrompt: MASTER_SYSTEM_PROMPT
 };
 
@@ -304,94 +266,95 @@ const client = new Client({
 const guildSettings = new Map();
 const voiceConnections = new Map();
 const audioPlayers = new Map();
+const ttsQueues = new Map();
+const voiceTimeouts = new Map();
 
-// ==================== CONVERSATION MEMORY SYSTEM ====================
-// Structure: { messages: [], lastActivity: Date, messageCount: number }
+// ==================== UNLIMITED CONVERSATION MEMORY ====================
 const conversations = new Map();
 
 function getConversation(guildId, userId) {
     const key = `${guildId}-${userId}`;
-    const now = Date.now();
-    
-    if (conversations.has(key)) {
-        const conv = conversations.get(key);
-        const timeSinceLastActivity = now - conv.lastActivity;
-        
-        // Reset if timeout (1 hour) OR too many messages (30+)
-        if (timeSinceLastActivity > CONFIG.conversationTimeout) {
-            console.log(`🔄 Conversation reset for ${key} (timeout)`);
-            conversations.delete(key);
-        } else if (conv.messageCount >= CONFIG.maxConversationMessages) {
-            // Soft reset - keep last 10 messages for context continuity
-            console.log(`🔄 Conversation soft reset for ${key} (max messages)`);
-            conv.messages = conv.messages.slice(-10);
-            conv.messageCount = 10;
-        }
-    }
-    
     if (!conversations.has(key)) {
         conversations.set(key, {
             messages: [],
-            lastActivity: now,
-            messageCount: 0,
-            createdAt: now
+            createdAt: Date.now(),
+            lastActivity: Date.now()
         });
     }
-    
-    return conversations.get(key);
+    const conv = conversations.get(key);
+    conv.lastActivity = Date.now();
+    return conv;
 }
 
 function addToConversation(guildId, userId, role, content) {
     const conv = getConversation(guildId, userId);
-    conv.messages.push({ role, content });
-    conv.lastActivity = Date.now();
-    conv.messageCount++;
-    
-    // Keep max 30 messages in memory
-    if (conv.messages.length > 30) {
-        conv.messages = conv.messages.slice(-30);
-    }
-    
+    conv.messages.push({ role, content, timestamp: Date.now() });
     return conv;
 }
 
 function clearConversation(guildId, userId) {
-    const key = `${guildId}-${userId}`;
-    conversations.delete(key);
+    conversations.delete(`${guildId}-${userId}`);
 }
 
 function getConversationInfo(guildId, userId) {
     const key = `${guildId}-${userId}`;
     if (!conversations.has(key)) return null;
-    
     const conv = conversations.get(key);
-    const age = Date.now() - conv.createdAt;
-    const remaining = CONFIG.conversationTimeout - (Date.now() - conv.lastActivity);
-    
     return {
-        messageCount: conv.messageCount,
-        ageMinutes: Math.floor(age / 60000),
-        remainingMinutes: Math.max(0, Math.floor(remaining / 60000)),
-        messagesUntilReset: CONFIG.maxConversationMessages - conv.messageCount
+        messageCount: conv.messages.length,
+        ageMinutes: Math.floor((Date.now() - conv.createdAt) / 60000),
+        lastActiveMinutes: Math.floor((Date.now() - conv.lastActivity) / 60000)
     };
 }
 
-// Cleanup old conversations periodically
-setInterval(() => {
-    const now = Date.now();
-    let cleaned = 0;
-    conversations.forEach((conv, key) => {
-        if (now - conv.lastActivity > CONFIG.conversationTimeout) {
-            conversations.delete(key);
-            cleaned++;
-        }
-    });
-    if (cleaned > 0) console.log(`🧹 Cleaned ${cleaned} expired conversations`);
-}, 10 * 60 * 1000); // Every 10 minutes
-
 // ==================== UTILITIES ====================
-function removeEmojisForTTS(text) {
+function ensureTempDir() {
+    if (!fs.existsSync(CONFIG.tempPath)) {
+        fs.mkdirSync(CONFIG.tempPath, { recursive: true });
+    }
+}
+
+function cleanupFile(filepath) {
+    try {
+        if (filepath && fs.existsSync(filepath)) {
+            fs.unlinkSync(filepath);
+        }
+    } catch (e) { /* ignore */ }
+}
+
+function cleanupFiles(files) {
+    if (Array.isArray(files)) {
+        files.forEach(f => cleanupFile(f));
+    } else {
+        cleanupFile(files);
+    }
+}
+
+function cleanupSessionFiles(sessionId) {
+    try {
+        const files = fs.readdirSync(CONFIG.tempPath).filter(f => f.includes(sessionId));
+        files.forEach(f => cleanupFile(path.join(CONFIG.tempPath, f)));
+    } catch (e) { /* ignore */ }
+}
+
+// Periodic cleanup of old temp files (older than 10 minutes)
+setInterval(() => {
+    try {
+        const files = fs.readdirSync(CONFIG.tempPath);
+        const now = Date.now();
+        files.forEach(f => {
+            const filepath = path.join(CONFIG.tempPath, f);
+            const stat = fs.statSync(filepath);
+            if (now - stat.mtimeMs > 600000) { // 10 minutes
+                cleanupFile(filepath);
+            }
+        });
+    } catch (e) { /* ignore */ }
+}, 300000); // Every 5 minutes
+
+function removeEmojisAndFormatForTTS(text) {
     return text
+        // Remove emojis
         .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')
         .replace(/[\u{2600}-\u{27BF}]/gu, '')
         .replace(/[\u{1F000}-\u{1F02F}]/gu, '')
@@ -400,9 +363,119 @@ function removeEmojisForTTS(text) {
         .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
         .replace(/[\u{1F900}-\u{1FAFF}]/gu, '')
         .replace(/[\u{FE00}-\u{FE0F}]/gu, '')
+        .replace(/[\u{200D}]/gu, '')
+        // Remove Discord emoji codes
         .replace(/:[a-zA-Z0-9_]+:/g, '')
+        // Handle code blocks - replace with spoken description
+        .replace(/```[\w]*\n?([\s\S]*?)```/g, (match, code) => {
+            const lines = code.trim().split('\n').length;
+            return ` (kode ${lines} baris) `;
+        })
+        // Handle inline code
+        .replace(/`([^`]+)`/g, '$1')
+        // Handle markdown formatting
+        .replace(/\*\*([^*]+)\*\*/g, '$1')
+        .replace(/\*([^*]+)\*/g, '$1')
+        .replace(/__([^_]+)__/g, '$1')
+        .replace(/_([^_]+)_/g, '$1')
+        .replace(/~~([^~]+)~~/g, '$1')
+        // Handle links - read the text part
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        // Handle headers
+        .replace(/#{1,6}\s*/g, '')
+        // Handle bullet points
+        .replace(/^[\s]*[-*+]\s+/gm, '')
+        .replace(/^[\s]*\d+\.\s+/gm, '')
+        // Handle multiple newlines
+        .replace(/\n{3,}/g, '\n\n')
+        // Handle multiple spaces
         .replace(/\s+/g, ' ')
+        // Clean up
         .trim();
+}
+
+// Smart text splitting that respects sentence boundaries
+function splitTextForTTS(text, maxLength = CONFIG.ttsMaxChunkLength) {
+    const clean = removeEmojisAndFormatForTTS(text);
+    if (!clean || clean.length < CONFIG.ttsMinChunkLength) return [];
+    
+    // Limit total length
+    const limitedText = clean.slice(0, CONFIG.ttsMaxTotalLength);
+    
+    if (limitedText.length <= maxLength) {
+        return [limitedText];
+    }
+    
+    const chunks = [];
+    let remaining = limitedText;
+    
+    while (remaining.length > 0) {
+        if (remaining.length <= maxLength) {
+            if (remaining.trim().length >= CONFIG.ttsMinChunkLength) {
+                chunks.push(remaining.trim());
+            }
+            break;
+        }
+        
+        let splitIndex = -1;
+        const searchArea = remaining.slice(0, maxLength);
+        
+        // Priority 1: End of sentence (. ! ?) followed by space and capital letter
+        const sentenceMatches = [...searchArea.matchAll(/[.!?]\s+(?=[A-Z\u0400-\u04FF\u4e00-\u9fff])/g)];
+        if (sentenceMatches.length > 0) {
+            const lastMatch = sentenceMatches[sentenceMatches.length - 1];
+            if (lastMatch.index > maxLength / 3) {
+                splitIndex = lastMatch.index + 1;
+            }
+        }
+        
+        // Priority 2: End of sentence at end of search area
+        if (splitIndex === -1) {
+            const lastPeriod = searchArea.lastIndexOf('. ');
+            const lastQuestion = searchArea.lastIndexOf('? ');
+            const lastExclaim = searchArea.lastIndexOf('! ');
+            splitIndex = Math.max(lastPeriod, lastQuestion, lastExclaim);
+            if (splitIndex > 0 && splitIndex > maxLength / 3) {
+                splitIndex += 1;
+            } else {
+                splitIndex = -1;
+            }
+        }
+        
+        // Priority 3: Comma or semicolon
+        if (splitIndex === -1) {
+            const lastComma = searchArea.lastIndexOf(', ');
+            const lastSemicolon = searchArea.lastIndexOf('; ');
+            const lastColon = searchArea.lastIndexOf(': ');
+            splitIndex = Math.max(lastComma, lastSemicolon, lastColon);
+            if (splitIndex > 0 && splitIndex > maxLength / 3) {
+                splitIndex += 1;
+            } else {
+                splitIndex = -1;
+            }
+        }
+        
+        // Priority 4: Any space
+        if (splitIndex === -1) {
+            splitIndex = searchArea.lastIndexOf(' ');
+            if (splitIndex < maxLength / 4) {
+                splitIndex = -1;
+            }
+        }
+        
+        // Fallback: Hard cut at maxLength
+        if (splitIndex === -1 || splitIndex < CONFIG.ttsMinChunkLength) {
+            splitIndex = maxLength;
+        }
+        
+        const chunk = remaining.slice(0, splitIndex).trim();
+        if (chunk.length >= CONFIG.ttsMinChunkLength) {
+            chunks.push(chunk);
+        }
+        remaining = remaining.slice(splitIndex).trim();
+    }
+    
+    return chunks.filter(c => c.length >= CONFIG.ttsMinChunkLength);
 }
 
 function loadSettings() {
@@ -412,7 +485,7 @@ function loadSettings() {
             Object.entries(data).forEach(([id, s]) => guildSettings.set(id, { ...DEFAULT_SETTINGS, ...s }));
             console.log(`📂 Loaded ${guildSettings.size} guild settings`);
         }
-    } catch (e) { console.error('Load error:', e.message); }
+    } catch (e) { console.error('Load settings error:', e.message); }
 }
 
 function saveSettings() {
@@ -422,7 +495,7 @@ function saveSettings() {
         const data = {};
         guildSettings.forEach((s, id) => data[id] = s);
         fs.writeFileSync(CONFIG.dataPath, JSON.stringify(data, null, 2));
-    } catch (e) { console.error('Save error:', e.message); }
+    } catch (e) { console.error('Save settings error:', e.message); }
 }
 
 function getSettings(guildId) {
@@ -436,7 +509,9 @@ function updateSettings(guildId, key, value) {
     saveSettings();
 }
 
-function isAdmin(userId) { return CONFIG.adminIds.includes(userId); }
+function isAdmin(userId) { 
+    return CONFIG.adminIds.includes(userId); 
+}
 
 function getModelInfo(provider, modelId) {
     const p = AI_PROVIDERS[provider];
@@ -444,7 +519,6 @@ function getModelInfo(provider, modelId) {
     return p.models.find(m => m.id === modelId) || { name: modelId, version: '?' };
 }
 
-// Split long messages for Discord (max 2000 chars)
 function splitMessage(text, maxLength = 1900) {
     if (text.length <= maxLength) return [text];
     
@@ -457,7 +531,6 @@ function splitMessage(text, maxLength = 1900) {
             break;
         }
         
-        // Find a good breaking point
         let splitIndex = remaining.lastIndexOf('\n', maxLength);
         if (splitIndex === -1 || splitIndex < maxLength / 2) {
             splitIndex = remaining.lastIndexOf('. ', maxLength);
@@ -511,14 +584,12 @@ async function callAI(guildId, userId, userMessage, isVoiceMode = false) {
     const { aiProvider, aiModel, systemPrompt } = s;
     const start = Date.now();
     
-    // Get conversation history
     const conv = getConversation(guildId, userId);
     const history = conv.messages;
     
-    // Modify system prompt for voice mode
     let finalSystemPrompt = systemPrompt;
     if (isVoiceMode) {
-        finalSystemPrompt += '\n\n[MODE: Voice Response - Jawab dengan ringkas, 2-4 kalimat saja]';
+        finalSystemPrompt += '\n\n[MODE: Voice - Berikan jawaban yang lebih ringkas dan natural untuk didengarkan, 2-5 kalimat saja kecuali topik memerlukan penjelasan lebih panjang]';
     }
     
     try {
@@ -532,7 +603,6 @@ async function callAI(guildId, userId, userMessage, isVoiceMode = false) {
             default: response = await callPollinationsFree('openai', userMessage, history, finalSystemPrompt);
         }
         
-        // Add to conversation memory
         addToConversation(guildId, userId, 'user', userMessage);
         addToConversation(guildId, userId, 'assistant', response);
         
@@ -553,7 +623,7 @@ async function callAI(guildId, userId, userMessage, isVoiceMode = false) {
             addToConversation(guildId, userId, 'assistant', fallback);
             return {
                 text: fallback,
-                provider: 'Pollinations Free (Fallback)',
+                provider: 'Pollinations (Fallback)',
                 model: 'OpenAI GPT',
                 version: 'GPT-4.1-nano',
                 latency: Date.now() - start
@@ -574,7 +644,7 @@ async function callGroq(model, message, history, systemPrompt) {
     
     const messages = [
         { role: 'system', content: systemPrompt }, 
-        ...history.slice(-20), 
+        ...history.slice(-50).map(m => ({ role: m.role, content: m.content })), 
         { role: 'user', content: message }
     ];
     
@@ -597,10 +667,10 @@ async function callGroq(model, message, history, systemPrompt) {
 
 async function callPollinationsFree(model, message, history, systemPrompt) {
     let prompt = systemPrompt + '\n\n';
-    history.slice(-12).forEach(m => prompt += m.role === 'user' ? `User: ${m.content}\n` : `Assistant: ${m.content}\n`);
+    history.slice(-20).forEach(m => prompt += m.role === 'user' ? `User: ${m.content}\n` : `Assistant: ${m.content}\n`);
     prompt += `User: ${message}\nAssistant:`;
     
-    const encoded = encodeURIComponent(prompt.slice(0, 4000));
+    const encoded = encodeURIComponent(prompt.slice(0, 6000));
     const seed = Math.floor(Math.random() * 1000000);
     
     return new Promise((resolve, reject) => {
@@ -624,7 +694,7 @@ async function callPollinationsAPI(model, message, history, systemPrompt) {
     
     const messages = [
         { role: 'system', content: systemPrompt }, 
-        ...history.slice(-20), 
+        ...history.slice(-50).map(m => ({ role: m.role, content: m.content })), 
         { role: 'user', content: message }
     ];
     
@@ -647,7 +717,7 @@ async function callOpenRouter(model, message, history, systemPrompt) {
     
     const messages = [
         { role: 'system', content: systemPrompt }, 
-        ...history.slice(-20), 
+        ...history.slice(-50).map(m => ({ role: m.role, content: m.content })), 
         { role: 'user', content: message }
     ];
     
@@ -670,9 +740,7 @@ async function callOpenRouter(model, message, history, systemPrompt) {
         try {
             const result = JSON.parse(data);
             throw new Error(result.error?.message || `HTTP ${statusCode}`);
-        } catch {
-            throw new Error(`HTTP ${statusCode}`);
-        }
+        } catch { throw new Error(`HTTP ${statusCode}`); }
     }
     
     const result = JSON.parse(data);
@@ -685,7 +753,7 @@ async function callHuggingFace(model, message, history, systemPrompt) {
     if (!apiKey) throw new Error('HUGGINGFACE_API_KEY not set');
     
     let prompt = systemPrompt + '\n\n';
-    history.slice(-10).forEach(m => prompt += m.role === 'user' ? `User: ${m.content}\n` : `Assistant: ${m.content}\n`);
+    history.slice(-20).forEach(m => prompt += m.role === 'user' ? `User: ${m.content}\n` : `Assistant: ${m.content}\n`);
     prompt += `User: ${message}\nAssistant:`;
     
     const { data } = await httpRequest({
@@ -701,96 +769,292 @@ async function callHuggingFace(model, message, history, systemPrompt) {
     return text.split('Assistant:').pop().trim();
 }
 
-// ==================== TTS ====================
-async function generateTTS(guildId, text) {
+// ==================== TTS GENERATION ====================
+function generateSingleTTSChunk(text, voice, provider, outputPath) {
+    return new Promise((resolve, reject) => {
+        const safeText = text
+            .replace(/"/g, "'")
+            .replace(/`/g, "'")
+            .replace(/\$/g, '')
+            .replace(/\\/g, '')
+            .replace(/\n/g, ' ')
+            .trim();
+        
+        if (!safeText || safeText.length < 2) {
+            return reject(new Error('Text too short'));
+        }
+        
+        const timeout = setTimeout(() => {
+            reject(new Error('TTS generation timeout'));
+        }, CONFIG.ttsGenerateTimeout);
+        
+        switch (provider) {
+            case 'edge':
+                const edgeProcess = exec(
+                    `edge-tts --voice "${voice}" --text "${safeText}" --write-media "${outputPath}"`,
+                    { timeout: CONFIG.ttsGenerateTimeout },
+                    (err) => {
+                        clearTimeout(timeout);
+                        if (err) reject(err);
+                        else resolve(outputPath);
+                    }
+                );
+                break;
+                
+            case 'pollinations':
+                const encoded = encodeURIComponent(safeText);
+                const file = fs.createWriteStream(outputPath);
+                https.get(`https://text.pollinations.ai/${encoded}?model=openai-audio&voice=${voice}`, res => {
+                    clearTimeout(timeout);
+                    if (res.statusCode !== 200) {
+                        file.close();
+                        return reject(new Error(`HTTP ${res.statusCode}`));
+                    }
+                    res.pipe(file);
+                    file.on('finish', () => { file.close(); resolve(outputPath); });
+                    file.on('error', reject);
+                }).on('error', (e) => { clearTimeout(timeout); reject(e); });
+                break;
+                
+            case 'elevenlabs':
+                (async () => {
+                    try {
+                        const apiKey = process.env.ELEVENLABS_API_KEY;
+                        if (!apiKey) throw new Error('ELEVENLABS_API_KEY not set');
+                        
+                        const response = await httpRequestBinary({
+                            hostname: 'api.elevenlabs.io',
+                            path: `/v1/text-to-speech/${voice}`,
+                            method: 'POST',
+                            headers: { 
+                                'Accept': 'audio/mpeg', 
+                                'Content-Type': 'application/json', 
+                                'xi-api-key': apiKey 
+                            }
+                        }, JSON.stringify({ 
+                            text: safeText, 
+                            model_id: 'eleven_multilingual_v2',
+                            voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+                        }));
+                        
+                        clearTimeout(timeout);
+                        fs.writeFileSync(outputPath, response);
+                        resolve(outputPath);
+                    } catch (e) {
+                        clearTimeout(timeout);
+                        reject(e);
+                    }
+                })();
+                break;
+                
+            default:
+                // Fallback to edge
+                exec(
+                    `edge-tts --voice "id-ID-GadisNeural" --text "${safeText}" --write-media "${outputPath}"`,
+                    { timeout: CONFIG.ttsGenerateTimeout },
+                    (err) => {
+                        clearTimeout(timeout);
+                        if (err) reject(err);
+                        else resolve(outputPath);
+                    }
+                );
+        }
+    });
+}
+
+// Concatenate multiple audio files using ffmpeg
+function concatenateAudioFiles(inputFiles, outputPath) {
+    return new Promise((resolve, reject) => {
+        if (inputFiles.length === 0) {
+            return reject(new Error('No input files'));
+        }
+        
+        if (inputFiles.length === 1) {
+            // Just rename/copy the single file
+            try {
+                fs.copyFileSync(inputFiles[0], outputPath);
+                return resolve(outputPath);
+            } catch (e) {
+                return reject(e);
+            }
+        }
+        
+        const listPath = outputPath.replace('.mp3', '_list.txt');
+        const listContent = inputFiles.map(f => `file '${path.resolve(f)}'`).join('\n');
+        
+        try {
+            fs.writeFileSync(listPath, listContent);
+        } catch (e) {
+            return reject(e);
+        }
+        
+        const ffmpegProcess = exec(
+            `ffmpeg -f concat -safe 0 -i "${listPath}" -c:a libmp3lame -q:a 2 "${outputPath}" -y`,
+            { timeout: CONFIG.ttsConcatTimeout },
+            (err) => {
+                cleanupFile(listPath);
+                if (err) {
+                    // Fallback: try simpler concat
+                    exec(
+                        `ffmpeg -f concat -safe 0 -i "${listPath}" -c copy "${outputPath}" -y`,
+                        { timeout: CONFIG.ttsConcatTimeout },
+                        (err2) => {
+                            if (err2) reject(err);
+                            else resolve(outputPath);
+                        }
+                    );
+                } else {
+                    resolve(outputPath);
+                }
+            }
+        );
+    });
+}
+
+// Main TTS generation function - handles long text
+async function generateTTS(guildId, text, progressCallback = null) {
     const s = getSettings(guildId);
-    const clean = removeEmojisForTTS(text);
-    if (!clean || clean.length < 2) return null;
+    ensureTempDir();
     
-    if (!fs.existsSync('./temp')) fs.mkdirSync('./temp', { recursive: true });
-    const output = `./temp/tts_${Date.now()}.mp3`;
+    const chunks = splitTextForTTS(text, CONFIG.ttsMaxChunkLength);
+    
+    if (chunks.length === 0) {
+        return null;
+    }
+    
+    const sessionId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const chunkFiles = [];
+    
+    console.log(`🔊 TTS: Generating ${chunks.length} chunks (${text.length} chars total)`);
     
     try {
-        switch (s.ttsProvider) {
-            case 'edge': return await genEdgeTTS(clean, s.ttsVoice, output);
-            case 'pollinations': return await genPollinationsTTS(clean, s.ttsVoice, output);
-            case 'elevenlabs': return await genElevenLabsTTS(clean, s.ttsVoice, output);
-            case 'groq_tts': return await genGroqTTS(clean, s.ttsVoice, output);
-            default: return await genEdgeTTS(clean, 'id-ID-GadisNeural', output);
+        // Generate each chunk
+        for (let i = 0; i < chunks.length; i++) {
+            const chunkPath = path.join(CONFIG.tempPath, `tts_${sessionId}_chunk${i}.mp3`);
+            
+            if (progressCallback) {
+                progressCallback(i + 1, chunks.length);
+            }
+            
+            try {
+                await generateSingleTTSChunk(chunks[i], s.ttsVoice, s.ttsProvider, chunkPath);
+                
+                // Verify file was created and has content
+                if (fs.existsSync(chunkPath) && fs.statSync(chunkPath).size > 0) {
+                    chunkFiles.push(chunkPath);
+                }
+            } catch (chunkError) {
+                console.error(`TTS chunk ${i} error:`, chunkError.message);
+                // Try fallback to edge for this chunk
+                if (s.ttsProvider !== 'edge') {
+                    try {
+                        await generateSingleTTSChunk(chunks[i], 'id-ID-GadisNeural', 'edge', chunkPath);
+                        if (fs.existsSync(chunkPath) && fs.statSync(chunkPath).size > 0) {
+                            chunkFiles.push(chunkPath);
+                        }
+                    } catch (e) {
+                        console.error(`TTS chunk ${i} fallback error:`, e.message);
+                    }
+                }
+            }
         }
-    } catch (e) {
-        console.error(`TTS Error:`, e.message);
-        if (s.ttsProvider !== 'edge') return await genEdgeTTS(clean, 'id-ID-GadisNeural', output);
-        throw e;
+        
+        if (chunkFiles.length === 0) {
+            throw new Error('No TTS chunks generated successfully');
+        }
+        
+        console.log(`🔊 TTS: Generated ${chunkFiles.length}/${chunks.length} chunks`);
+        
+        // If only one chunk, return it directly
+        if (chunkFiles.length === 1) {
+            return {
+                type: 'single',
+                file: chunkFiles[0],
+                sessionId
+            };
+        }
+        
+        // Try to concatenate
+        const combinedPath = path.join(CONFIG.tempPath, `tts_${sessionId}_combined.mp3`);
+        
+        try {
+            await concatenateAudioFiles(chunkFiles, combinedPath);
+            
+            // Cleanup chunk files after successful concat
+            cleanupFiles(chunkFiles);
+            
+            return {
+                type: 'combined',
+                file: combinedPath,
+                sessionId,
+                chunkCount: chunks.length
+            };
+        } catch (concatError) {
+            console.log('FFmpeg concat failed, returning chunks for sequential play:', concatError.message);
+            
+            // Return chunks for sequential playback
+            return {
+                type: 'chunks',
+                files: chunkFiles,
+                sessionId,
+                chunkCount: chunks.length
+            };
+        }
+        
+    } catch (error) {
+        console.error('TTS generation error:', error.message);
+        cleanupSessionFiles(sessionId);
+        throw error;
     }
 }
 
-function genEdgeTTS(text, voice, output) {
-    const safe = text.replace(/"/g, "'").replace(/`/g, "'").replace(/\$/g, '').slice(0, 500);
-    return new Promise((resolve, reject) => {
-        exec(`edge-tts --voice "${voice}" --text "${safe}" --write-media "${output}"`, { timeout: 30000 }, 
-            err => err ? reject(err) : resolve(output));
-    });
-}
-
-function genPollinationsTTS(text, voice, output) {
-    const encoded = encodeURIComponent(text.slice(0, 500));
-    return new Promise((resolve, reject) => {
-        const file = fs.createWriteStream(output);
-        https.get(`https://text.pollinations.ai/${encoded}?model=openai-audio&voice=${voice}`, res => {
-            if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
-            res.pipe(file);
-            file.on('finish', () => { file.close(); resolve(output); });
-        }).on('error', reject);
-    });
-}
-
-async function genElevenLabsTTS(text, voiceId, output) {
-    const apiKey = process.env.ELEVENLABS_API_KEY;
-    if (!apiKey) throw new Error('ELEVENLABS_API_KEY not set');
-    
-    const response = await httpRequestBinary({
-        hostname: 'api.elevenlabs.io',
-        path: `/v1/text-to-speech/${voiceId}`,
-        method: 'POST',
-        headers: { 'Accept': 'audio/mpeg', 'Content-Type': 'application/json', 'xi-api-key': apiKey }
-    }, JSON.stringify({ text: text.slice(0, 500), model_id: 'eleven_multilingual_v2' }));
-    
-    fs.writeFileSync(output, response);
-    return output;
-}
-
-async function genGroqTTS(text, model, output) {
-    const apiKey = process.env.GROQ_API_KEY;
-    if (!apiKey) throw new Error('GROQ_API_KEY not set');
-    console.log(`Groq TTS requested with model: ${model}`);
-    return genEdgeTTS(text, 'en-US-AriaNeural', output);
-}
-
 // ==================== VOICE FUNCTIONS ====================
+function resetVoiceTimeout(guildId) {
+    // Clear existing timeout
+    if (voiceTimeouts.has(guildId)) {
+        clearTimeout(voiceTimeouts.get(guildId));
+    }
+    
+    // Set new timeout
+    const timeout = setTimeout(() => {
+        const conn = voiceConnections.get(guildId);
+        if (conn) {
+            console.log(`Voice inactivity timeout for guild ${guildId}`);
+            leaveVoiceChannel({ id: guildId });
+        }
+    }, CONFIG.voiceInactivityTimeout);
+    
+    voiceTimeouts.set(guildId, timeout);
+}
+
 async function joinUserVoiceChannel(member, guild) {
     const vc = member?.voice?.channel;
-    if (!vc) return { success: false, error: 'User not in voice channel' };
+    if (!vc) return { success: false, error: 'Kamu harus di voice channel dulu' };
     
     try {
-        // Check if already connected to this channel
         const existingConn = getVoiceConnection(guild.id);
         if (existingConn && existingConn.joinConfig.channelId === vc.id) {
+            resetVoiceTimeout(guild.id);
             return { success: true, channel: vc, alreadyConnected: true };
         }
         
-        // Destroy existing connection if in different channel
+        // Cleanup existing connection
         if (existingConn) {
             existingConn.destroy();
             voiceConnections.delete(guild.id);
             audioPlayers.delete(guild.id);
+            ttsQueues.delete(guild.id);
+            if (voiceTimeouts.has(guild.id)) {
+                clearTimeout(voiceTimeouts.get(guild.id));
+            }
         }
         
         const conn = joinVoiceChannel({ 
             channelId: vc.id, 
             guildId: guild.id, 
             adapterCreator: guild.voiceAdapterCreator, 
-            selfDeaf: false 
+            selfDeaf: false,
+            selfMute: false
         });
         
         await entersState(conn, VoiceConnectionStatus.Ready, 30000);
@@ -800,6 +1064,24 @@ async function joinUserVoiceChannel(member, guild) {
         
         voiceConnections.set(guild.id, conn);
         audioPlayers.set(guild.id, player);
+        ttsQueues.set(guild.id, { queue: [], playing: false, currentFile: null });
+        
+        // Setup player events
+        player.on(AudioPlayerStatus.Idle, () => {
+            processNextInQueue(guild.id);
+        });
+        
+        player.on('error', (error) => {
+            console.error('Audio player error:', error.message);
+            const queueData = ttsQueues.get(guild.id);
+            if (queueData?.currentFile) {
+                cleanupFile(queueData.currentFile);
+                queueData.currentFile = null;
+            }
+            processNextInQueue(guild.id);
+        });
+        
+        resetVoiceTimeout(guild.id);
         
         return { success: true, channel: vc };
     } catch (e) {
@@ -809,30 +1091,104 @@ async function joinUserVoiceChannel(member, guild) {
 }
 
 async function leaveVoiceChannel(guild) {
-    const conn = voiceConnections.get(guild.id) || getVoiceConnection(guild.id);
+    const guildId = guild.id || guild;
+    const conn = voiceConnections.get(guildId) || getVoiceConnection(guildId);
+    
+    // Clear timeout
+    if (voiceTimeouts.has(guildId)) {
+        clearTimeout(voiceTimeouts.get(guildId));
+        voiceTimeouts.delete(guildId);
+    }
+    
+    // Clear and cleanup queue
+    const queueData = ttsQueues.get(guildId);
+    if (queueData) {
+        if (queueData.currentFile) cleanupFile(queueData.currentFile);
+        queueData.queue.forEach(item => cleanupFile(item.file));
+    }
+    
     if (!conn) return false;
     
     conn.destroy();
-    voiceConnections.delete(guild.id);
-    audioPlayers.delete(guild.id);
+    voiceConnections.delete(guildId);
+    audioPlayers.delete(guildId);
+    ttsQueues.delete(guildId);
     return true;
 }
 
-async function playTTSInVoice(guildId, text) {
+function processNextInQueue(guildId) {
+    const queueData = ttsQueues.get(guildId);
+    if (!queueData) return;
+    
+    // Cleanup current file
+    if (queueData.currentFile) {
+        cleanupFile(queueData.currentFile);
+        queueData.currentFile = null;
+    }
+    
+    if (queueData.queue.length === 0) {
+        queueData.playing = false;
+        resetVoiceTimeout(guildId);
+        return;
+    }
+    
+    const player = audioPlayers.get(guildId);
+    if (!player) {
+        queueData.queue.forEach(item => cleanupFile(item.file));
+        queueData.queue = [];
+        queueData.playing = false;
+        return;
+    }
+    
+    const next = queueData.queue.shift();
+    queueData.currentFile = next.file;
+    queueData.playing = true;
+    
+    try {
+        const resource = createAudioResource(next.file, {
+            inputType: StreamType.Arbitrary,
+            inlineVolume: true
+        });
+        resource.volume?.setVolume(1);
+        player.play(resource);
+        resetVoiceTimeout(guildId);
+    } catch (e) {
+        console.error('Play error:', e.message);
+        cleanupFile(next.file);
+        processNextInQueue(guildId);
+    }
+}
+
+function addToTTSQueue(guildId, ttsResult) {
+    let queueData = ttsQueues.get(guildId);
+    if (!queueData) {
+        queueData = { queue: [], playing: false, currentFile: null };
+        ttsQueues.set(guildId, queueData);
+    }
+    
+    if (ttsResult.type === 'single' || ttsResult.type === 'combined') {
+        queueData.queue.push({ file: ttsResult.file });
+    } else if (ttsResult.type === 'chunks') {
+        ttsResult.files.forEach(file => {
+            queueData.queue.push({ file });
+        });
+    }
+    
+    // Start playing if not already
+    if (!queueData.playing) {
+        processNextInQueue(guildId);
+    }
+    
+    return queueData.queue.length;
+}
+
+async function playTTSInVoice(guildId, ttsResult) {
     const player = audioPlayers.get(guildId);
     if (!player) return false;
     
     try {
-        const audio = await generateTTS(guildId, text);
-        if (!audio) return false;
-        
-        const resource = createAudioResource(audio);
-        player.play(resource);
-        
-        player.once(AudioPlayerStatus.Idle, () => {
-            try { fs.unlinkSync(audio); } catch(e) {}
-        });
-        
+        const queueLength = addToTTSQueue(guildId, ttsResult);
+        console.log(`🔊 Added to queue, ${queueLength} items total`);
         return true;
     } catch (e) {
         console.error('TTS playback error:', e.message);
@@ -840,7 +1196,47 @@ async function playTTSInVoice(guildId, text) {
     }
 }
 
-// ==================== EMBEDS & MENUS (for settings only) ====================
+async function sendTTSAsFile(channel, ttsResult) {
+    try {
+        let filePath;
+        let cleanup = [];
+        
+        if (ttsResult.type === 'single' || ttsResult.type === 'combined') {
+            filePath = ttsResult.file;
+        } else if (ttsResult.type === 'chunks') {
+            // Try to concatenate for file output
+            const combinedPath = path.join(CONFIG.tempPath, `tts_${ttsResult.sessionId}_forfile.mp3`);
+            try {
+                await concatenateAudioFiles(ttsResult.files, combinedPath);
+                filePath = combinedPath;
+                cleanup = ttsResult.files;
+            } catch (e) {
+                // Send first chunk only as fallback
+                console.log('Concat for file failed, sending first chunk');
+                filePath = ttsResult.files[0];
+                cleanup = ttsResult.files.slice(1);
+            }
+        }
+        
+        const fileName = `aria_response_${Date.now()}.mp3`;
+        const attachment = new AttachmentBuilder(filePath, { name: fileName });
+        
+        await channel.send({ 
+            content: ttsResult.chunkCount > 1 ? `🔊 Audio (${ttsResult.chunkCount} bagian digabung)` : undefined,
+            files: [attachment] 
+        });
+        
+        cleanupFile(filePath);
+        cleanupFiles(cleanup);
+        
+        return true;
+    } catch (e) {
+        console.error('TTS file send error:', e.message);
+        return false;
+    }
+}
+
+// ==================== EMBEDS & MENUS ====================
 function createSettingsEmbed(guildId) {
     const s = getSettings(guildId);
     const ai = AI_PROVIDERS[s.aiProvider];
@@ -851,13 +1247,14 @@ function createSettingsEmbed(guildId) {
     return new EmbedBuilder()
         .setColor(0x5865F2)
         .setTitle('⚙️ Aria Settings')
-        .setDescription(`Total **${totalModels}** models • Memory: 1 jam / 30 pesan`)
+        .setDescription(`**${totalModels}** models • Memory: **Unlimited** • Long TTS: ✅`)
         .addFields(
             { name: '🧠 AI Provider', value: `**${ai?.name}**\n${m.name} (${m.version})`, inline: true },
             { name: '🔊 TTS Provider', value: `**${tts?.name}**\n${s.ttsVoice}`, inline: true },
-            { name: '📝 Mode', value: s.mode === 'voice' ? '🔊 Voice + Text' : '📝 Text Only', inline: true }
+            { name: '📝 Mode', value: s.mode === 'voice' ? '🔊 Voice + Text' : '📝 Text Only', inline: true },
+            { name: '🎵 TTS Output', value: s.ttsOutput === 'auto' ? '🔄 Auto' : s.ttsOutput === 'file' ? '📁 File' : '🔊 Voice', inline: true }
         )
-        .setFooter({ text: 'Gunakan menu di bawah untuk mengubah settings' })
+        .setFooter({ text: `TTS: max ${CONFIG.ttsMaxTotalLength} chars | Chunk: ${CONFIG.ttsMaxChunkLength} chars` })
         .setTimestamp();
 }
 
@@ -931,9 +1328,10 @@ function createTTSVoiceMenu(guildId) {
 function createModeButtons(guildId) {
     const s = getSettings(guildId);
     return new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('mode_text').setLabel('📝 Text Only').setStyle(s.mode === 'text' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('mode_voice').setLabel('🔊 Voice + Text').setStyle(s.mode === 'voice' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('refresh').setLabel('🔄 Refresh').setStyle(ButtonStyle.Secondary)
+        new ButtonBuilder().setCustomId('mode_text').setLabel('📝 Text').setStyle(s.mode === 'text' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('mode_voice').setLabel('🔊 Voice').setStyle(s.mode === 'voice' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('tts_output_toggle').setLabel(`🎵 ${s.ttsOutput || 'auto'}`).setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('refresh').setLabel('🔄').setStyle(ButtonStyle.Secondary)
     );
 }
 
@@ -943,33 +1341,29 @@ async function handleAIMessage(msg, query) {
     const userId = msg.author.id;
     const s = getSettings(guildId);
     
-    // Check if user is in voice channel and auto-join
     const isVoiceMode = s.mode === 'voice';
-    let inVoice = false;
+    let inVoiceChannel = false;
+    const ttsOutput = s.ttsOutput || 'auto';
     
-    if (isVoiceMode && msg.member?.voice?.channel) {
+    // Try to join voice if user is in voice channel
+    if (isVoiceMode && msg.member?.voice?.channel && ttsOutput !== 'file') {
         const result = await joinUserVoiceChannel(msg.member, msg.guild);
         if (result.success) {
-            inVoice = true;
-            if (!result.alreadyConnected) {
-                // Don't notify, just join silently
-            }
+            inVoiceChannel = true;
         }
     }
     
-    // Show typing indicator
     await msg.channel.sendTyping();
     
     try {
-        const response = await callAI(guildId, userId, query, inVoice);
+        const response = await callAI(guildId, userId, query, isVoiceMode);
         
-        // Format response as plain text with model info
+        // Format response
         const modelInfo = `*${response.model} • ${response.latency}ms*`;
         const fullResponse = `${response.text}\n\n-# ${modelInfo}`;
         
-        // Split if too long
+        // Send text response
         const parts = splitMessage(fullResponse);
-        
         for (let i = 0; i < parts.length; i++) {
             if (i === 0) {
                 await msg.reply(parts[i]);
@@ -978,14 +1372,50 @@ async function handleAIMessage(msg, query) {
             }
         }
         
-        // Play TTS if in voice
-        if (inVoice) {
-            await playTTSInVoice(guildId, response.text);
+        // Handle TTS
+        if (isVoiceMode) {
+            try {
+                // Show TTS generation progress for long text
+                const cleanText = removeEmojisAndFormatForTTS(response.text);
+                let statusMsg = null;
+                
+                if (cleanText.length > CONFIG.ttsMaxChunkLength) {
+                    statusMsg = await msg.channel.send(`🔊 Generating audio (${cleanText.length} chars)...`);
+                }
+                
+                const ttsResult = await generateTTS(guildId, response.text, (current, total) => {
+                    if (statusMsg && total > 1) {
+                        statusMsg.edit(`🔊 Generating audio part ${current}/${total}...`).catch(() => {});
+                    }
+                });
+                
+                if (statusMsg) {
+                    statusMsg.delete().catch(() => {});
+                }
+                
+                if (ttsResult) {
+                    if (ttsOutput === 'auto') {
+                        if (inVoiceChannel) {
+                            await playTTSInVoice(guildId, ttsResult);
+                        } else {
+                            await sendTTSAsFile(msg.channel, ttsResult);
+                        }
+                    } else if (ttsOutput === 'voice' && inVoiceChannel) {
+                        await playTTSInVoice(guildId, ttsResult);
+                    } else if (ttsOutput === 'file') {
+                        await sendTTSAsFile(msg.channel, ttsResult);
+                    } else {
+                        await sendTTSAsFile(msg.channel, ttsResult);
+                    }
+                }
+            } catch (ttsError) {
+                console.error('TTS error:', ttsError.message);
+            }
         }
         
     } catch (e) {
         console.error('AI Error:', e);
-        await msg.reply(`Maaf, ada error: ${e.message}`);
+        await msg.reply(`❌ Error: ${e.message}`);
     }
 }
 
@@ -1008,42 +1438,50 @@ async function showSettings(msg) {
 }
 
 async function showHelp(msg) {
-    const helpText = `**🤖 Aria AI Bot - Bantuan**
+    const helpText = `**🤖 Aria AI Bot v2.9**
 
 **Chat dengan AI:**
 • \`.ai <pertanyaan>\` - Tanya apa saja
 • \`@Aria <pertanyaan>\` - Mention langsung
 
-**Voice:**
-• \`.join\` - Gabung ke voice channel kamu
+**Voice & TTS:**
+• \`.join\` - Gabung ke voice channel
 • \`.leave\` - Keluar dari voice
-• Bot otomatis join saat kamu di voice (mode voice)
+• \`.speak <teks>\` - Generate TTS
+• \`.stop\` - Hentikan audio
+• ✅ Support teks panjang (auto-split & gabung)
+
+**Memory:**
+• \`.memory\` - Cek status memori
+• \`.clear\` - Hapus memori (unlimited!)
 
 **Lainnya:**
-• \`.memory\` - Cek status memori percakapan
-• \`.clear\` - Hapus memori percakapan
-• \`.status\` - Lihat provider yang aktif
-• \`.settings\` - Pengaturan (admin only)
+• \`.status\` - Provider aktif
+• \`.settings\` - Pengaturan (admin)
+• \`.ping\` - Latency
 
-**Tips:**
-• Bot mengingat 30 pesan terakhir atau 1 jam
-• Di voice mode, jawaban lebih singkat & dibacakan`;
+**Tips:** Di voice mode, bot otomatis join saat kamu chat!`;
     
     await msg.reply(helpText);
 }
 
 async function showStatus(msg) {
-    let text = '**📊 Status Provider**\n\n**AI:**\n';
+    let text = '**📊 Status**\n\n**AI Providers:**\n';
     Object.entries(AI_PROVIDERS).forEach(([k, p]) => {
         const ok = !p.requiresKey || process.env[p.keyEnv];
         const chatModels = p.models.filter(m => !['guard', 'tts', 'stt'].includes(m.category)).length;
-        text += `${ok ? '🟢' : '🔴'} ${p.name} (${chatModels} model)\n`;
+        text += `${ok ? '🟢' : '🔴'} ${p.name} (${chatModels})\n`;
     });
-    text += '\n**TTS:**\n';
+    text += '\n**TTS Providers:**\n';
     Object.entries(TTS_PROVIDERS).forEach(([k, p]) => {
         const ok = !p.requiresKey || process.env[p.keyEnv];
-        text += `${ok ? '🟢' : '🔴'} ${p.name} (${p.voices.length} voice)\n`;
+        text += `${ok ? '🟢' : '🔴'} ${p.name} (${p.voices.length})\n`;
     });
+    
+    text += `\n**Stats:**`;
+    text += `\n• Conversations: ${conversations.size}`;
+    text += `\n• Voice connections: ${voiceConnections.size}`;
+    text += `\n• TTS max: ${CONFIG.ttsMaxTotalLength} chars`;
     
     await msg.reply(text);
 }
@@ -1052,19 +1490,68 @@ async function showMemoryStatus(msg) {
     const info = getConversationInfo(msg.guild.id, msg.author.id);
     
     if (!info) {
-        return msg.reply('📭 Belum ada percakapan aktif dengan kamu.');
+        return msg.reply('📭 Belum ada percakapan aktif.');
     }
     
-    const text = `**🧠 Status Memori Percakapan**
+    await msg.reply(`**🧠 Memory Status**
+📝 Messages: **${info.messageCount}**
+⏱️ Age: **${info.ageMinutes}** min
+🕐 Last active: **${info.lastActiveMinutes}** min ago
+♾️ Limit: **unlimited**`);
+}
 
-📝 Pesan tersimpan: **${info.messageCount}** / ${CONFIG.maxConversationMessages}
-⏱️ Usia percakapan: **${info.ageMinutes}** menit
-⏳ Reset otomatis dalam: **${info.remainingMinutes}** menit
-📊 Pesan sampai soft-reset: **${info.messagesUntilReset}**
-
-_Gunakan \`.clear\` untuk reset manual_`;
+async function handleSpeak(msg, text) {
+    if (!text) {
+        return msg.reply('❓ Contoh: `.speak Halo ini test suara panjang...`');
+    }
     
-    await msg.reply(text);
+    const statusMsg = await msg.reply('🔊 Generating audio...');
+    
+    try {
+        const ttsResult = await generateTTS(msg.guild.id, text, (current, total) => {
+            if (total > 1) {
+                statusMsg.edit(`🔊 Generating part ${current}/${total}...`).catch(() => {});
+            }
+        });
+        
+        if (!ttsResult) {
+            return statusMsg.edit('❌ Gagal generate TTS');
+        }
+        
+        // Check if in voice
+        const player = audioPlayers.get(msg.guild.id);
+        if (player && msg.member?.voice?.channel) {
+            await playTTSInVoice(msg.guild.id, ttsResult);
+            await statusMsg.edit(`🔊 Playing in voice (${ttsResult.chunkCount || 1} parts)`);
+        } else {
+            await sendTTSAsFile(msg.channel, ttsResult);
+            await statusMsg.delete().catch(() => {});
+        }
+    } catch (e) {
+        console.error('Speak error:', e);
+        await statusMsg.edit(`❌ Error: ${e.message}`);
+    }
+}
+
+async function handleStop(msg) {
+    const player = audioPlayers.get(msg.guild.id);
+    const queueData = ttsQueues.get(msg.guild.id);
+    
+    if (!player) {
+        return msg.reply('❌ Tidak ada yang diputar');
+    }
+    
+    // Clear queue
+    if (queueData) {
+        if (queueData.currentFile) cleanupFile(queueData.currentFile);
+        queueData.queue.forEach(item => cleanupFile(item.file));
+        queueData.queue = [];
+        queueData.playing = false;
+        queueData.currentFile = null;
+    }
+    
+    player.stop();
+    await msg.reply('⏹️ Audio dihentikan');
 }
 
 // ==================== INTERACTION HANDLER ====================
@@ -1078,7 +1565,9 @@ client.on('interactionCreate', async (int) => {
         if (int.customId === 'sel_ai') {
             const p = AI_PROVIDERS[int.values[0]];
             if (!p) return int.reply({ content: '❌ Invalid provider', ephemeral: true });
-            if (p.requiresKey && !process.env[p.keyEnv]) return int.reply({ content: `❌ ${p.keyEnv} not configured`, ephemeral: true });
+            if (p.requiresKey && !process.env[p.keyEnv]) {
+                return int.reply({ content: `❌ ${p.keyEnv} not configured`, ephemeral: true });
+            }
             
             updateSettings(guildId, 'aiProvider', int.values[0]);
             const chatModels = p.models.filter(m => !['guard', 'tts', 'stt'].includes(m.category));
@@ -1089,8 +1578,10 @@ client.on('interactionCreate', async (int) => {
             updateSettings(guildId, 'aiModel', int.values[0]);
         } else if (int.customId === 'sel_tts') {
             const p = TTS_PROVIDERS[int.values[0]];
-            if (!p) return int.reply({ content: '❌ Invalid TTS provider', ephemeral: true });
-            if (p.requiresKey && !process.env[p.keyEnv]) return int.reply({ content: `❌ ${p.keyEnv} not configured`, ephemeral: true });
+            if (!p) return int.reply({ content: '❌ Invalid TTS', ephemeral: true });
+            if (p.requiresKey && !process.env[p.keyEnv]) {
+                return int.reply({ content: `❌ ${p.keyEnv} not configured`, ephemeral: true });
+            }
             updateSettings(guildId, 'ttsProvider', int.values[0]);
             updateSettings(guildId, 'ttsVoice', p.voices[0].id);
         } else if (int.customId === 'sel_voice') {
@@ -1099,6 +1590,11 @@ client.on('interactionCreate', async (int) => {
             updateSettings(guildId, 'mode', 'text');
         } else if (int.customId === 'mode_voice') {
             updateSettings(guildId, 'mode', 'voice');
+        } else if (int.customId === 'tts_output_toggle') {
+            const s = getSettings(guildId);
+            const order = ['auto', 'file', 'voice'];
+            const current = order.indexOf(s.ttsOutput || 'auto');
+            updateSettings(guildId, 'ttsOutput', order[(current + 1) % 3]);
         }
         
         const comps = [
@@ -1111,33 +1607,27 @@ client.on('interactionCreate', async (int) => {
         
         await int.update({ embeds: [createSettingsEmbed(guildId)], components: comps });
     } catch (e) { 
-        console.error('Interaction error:', e); 
-        try {
-            await int.reply({ content: `❌ Error: ${e.message}`, ephemeral: true });
-        } catch {}
+        console.error('Interaction error:', e);
+        int.reply({ content: `❌ Error: ${e.message}`, ephemeral: true }).catch(() => {});
     }
 });
 
 // ==================== MESSAGE HANDLER ====================
 client.on('messageCreate', async (msg) => {
-    // Ignore bots
     if (msg.author.bot) return;
+    if (!msg.guild) return; // Ignore DMs
     
-    // Check if mentioned
     const isMentioned = msg.mentions.has(client.user);
     
-    // Get content without mention
     let content = msg.content;
     if (isMentioned) {
         content = content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
     }
     
-    // Handle mention as AI query
     if (isMentioned && content) {
         return handleAIMessage(msg, content);
     }
     
-    // Handle prefix commands
     if (!content.startsWith(CONFIG.prefix)) return;
     
     const args = content.slice(CONFIG.prefix.length).trim().split(/ +/);
@@ -1145,143 +1635,115 @@ client.on('messageCreate', async (msg) => {
     
     try {
         switch (cmd) {
-            // Main AI command
             case 'ai':
             case 'ask':
             case 'chat':
             case 'tanya':
                 const query = args.join(' ');
-                if (!query) return msg.reply('❓ Contoh: `.ai apa itu javascript?`');
+                if (!query) return msg.reply('❓ `.ai apa itu javascript?`');
                 await handleAIMessage(msg, query);
                 break;
             
-            // Voice commands
+            case 'speak':
+            case 'say':
+            case 'tts':
+                await handleSpeak(msg, args.join(' '));
+                break;
+            
+            case 'stop':
+            case 'skip':
+                await handleStop(msg);
+                break;
+            
             case 'join':
             case 'j':
-                const joinResult = await joinUserVoiceChannel(msg.member, msg.guild);
-                if (joinResult.success) {
-                    if (joinResult.alreadyConnected) {
-                        await msg.reply(`✅ Sudah ada di **${joinResult.channel.name}**`);
-                    } else {
-                        await msg.reply(`🔊 Bergabung ke **${joinResult.channel.name}**`);
-                    }
-                } else {
-                    await msg.reply(`❌ Gagal: ${joinResult.error}`);
-                }
+                const jr = await joinUserVoiceChannel(msg.member, msg.guild);
+                await msg.reply(jr.success 
+                    ? (jr.alreadyConnected ? `✅ Sudah di **${jr.channel.name}**` : `🔊 Joined **${jr.channel.name}**`)
+                    : `❌ ${jr.error}`);
                 break;
             
             case 'leave':
             case 'dc':
-            case 'disconnect':
-                const left = await leaveVoiceChannel(msg.guild);
-                await msg.reply(left ? '👋 Keluar dari voice channel' : '❌ Tidak ada di voice channel');
+                await msg.reply(await leaveVoiceChannel(msg.guild) ? '👋 Left voice' : '❌ Not in voice');
                 break;
             
-            // Settings & info
             case 'settings':
             case 'config':
-            case 'setup':
                 await showSettings(msg);
                 break;
             
             case 'status':
-            case 'provider':
-            case 'providers':
                 await showStatus(msg);
                 break;
             
             case 'memory':
             case 'mem':
-            case 'ingatan':
                 await showMemoryStatus(msg);
                 break;
             
             case 'clear':
             case 'reset':
-            case 'forget':
-            case 'lupa':
                 clearConversation(msg.guild.id, msg.author.id);
-                await msg.reply('🗑️ Memori percakapan dihapus. Kita mulai dari awal ya!');
+                await msg.reply('🗑️ Memory cleared!');
+                break;
+            
+            case 'clearall':
+                if (isAdmin(msg.author.id)) {
+                    const count = conversations.size;
+                    conversations.clear();
+                    await msg.reply(`🗑️ Cleared ${count} conversations`);
+                } else {
+                    await msg.reply('❌ Admin only');
+                }
                 break;
             
             case 'help':
             case 'h':
-            case 'bantuan':
                 await showHelp(msg);
                 break;
             
             case 'ping':
-                const latency = Date.now() - msg.createdTimestamp;
-                await msg.reply(`🏓 Pong! Latency: ${latency}ms | API: ${client.ws.ping}ms`);
+                await msg.reply(`🏓 ${Date.now() - msg.createdTimestamp}ms | WS: ${client.ws.ping}ms`);
                 break;
         }
     } catch (e) { 
-        console.error('Command error:', e); 
-        await msg.reply(`❌ Error: ${e.message}`);
+        console.error('Command error:', e);
+        msg.reply(`❌ ${e.message}`).catch(() => {});
     }
 });
 
 // ==================== READY ====================
 client.once('ready', () => {
     console.log('\n' + '='.repeat(50));
-    console.log(`🤖 ${client.user.tag} is online!`);
-    console.log(`📡 Serving ${client.guilds.cache.size} servers`);
-    console.log(`📦 Version 2.6 - Plain Text + Memory`);
-    console.log(`🎯 Prefix: ${CONFIG.prefix} | Mention: @${client.user.username}`);
-    console.log('='.repeat(50) + '\n');
-    
-    console.log('🧠 AI Providers:');
-    Object.entries(AI_PROVIDERS).forEach(([k, p]) => {
-        const ok = !p.requiresKey || process.env[p.keyEnv];
-        const chatModels = p.models.filter(m => !['guard', 'tts', 'stt'].includes(m.category)).length;
-        console.log(`  ${ok ? '🟢' : '🔴'} ${p.name} (${chatModels} chat / ${p.models.length} total)`);
-    });
-    
-    console.log('\n🔊 TTS Providers:');
-    Object.entries(TTS_PROVIDERS).forEach(([k, p]) => {
-        const ok = !p.requiresKey || process.env[p.keyEnv];
-        console.log(`  ${ok ? '🟢' : '🔴'} ${p.name} (${p.voices.length} voices)`);
-    });
+    console.log(`🤖 ${client.user.tag} online!`);
+    console.log(`📡 ${client.guilds.cache.size} servers`);
+    console.log(`📦 v2.9.0 - Enhanced Long TTS`);
+    console.log('='.repeat(50));
     
     const totalModels = Object.values(AI_PROVIDERS).reduce((acc, p) => acc + p.models.length, 0);
-    console.log(`\n📊 Total: ${totalModels} models available`);
-    console.log(`⏱️ Memory: ${CONFIG.conversationTimeout/60000} min / ${CONFIG.maxConversationMessages} messages\n`);
+    console.log(`\n📊 ${totalModels} models | TTS: ${CONFIG.ttsMaxTotalLength} chars max\n`);
     
-    client.user.setActivity(`.ai | @${client.user.username}`, { type: ActivityType.Listening });
+    client.user.setActivity(`.ai | .help`, { type: ActivityType.Listening });
     loadSettings();
+    ensureTempDir();
 });
-
-// ==================== HEALTH CHECK SERVER ====================
-createServer((req, res) => {
-    const status = {
-        status: 'ok',
-        bot: client.user?.tag,
-        version: '2.6',
-        uptime: process.uptime(),
-        guilds: client.guilds.cache.size,
-        conversations: conversations.size,
-        providers: {
-            ai: Object.keys(AI_PROVIDERS).length,
-            tts: Object.keys(TTS_PROVIDERS).length
-        },
-        models: Object.values(AI_PROVIDERS).reduce((acc, p) => acc + p.models.length, 0)
-    };
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(status, null, 2));
-}).listen(process.env.PORT || 3000, () => console.log('🌐 Health check server ready\n'));
 
 // ==================== ERROR HANDLING ====================
-process.on('unhandledRejection', (error) => {
-    console.error('Unhandled promise rejection:', error);
+process.on('unhandledRejection', (e) => console.error('Unhandled:', e));
+process.on('uncaughtException', (e) => console.error('Uncaught:', e));
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+    console.log('Shutting down...');
+    voiceConnections.forEach((conn, id) => conn.destroy());
+    client.destroy();
+    process.exit(0);
 });
 
-process.on('uncaughtException', (error) => {
-    console.error('Uncaught exception:', error);
-});
-
-// ==================== START BOT ====================
+// ==================== START ====================
 if (!CONFIG.token) { 
-    console.error('❌ DISCORD_TOKEN environment variable not set!'); 
+    console.error('❌ DISCORD_TOKEN not set!'); 
     process.exit(1); 
 }
 
