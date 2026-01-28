@@ -1,38 +1,34 @@
-FROM node:20-alpine
+FROM node:20-slim
 
-# Install system dependencies
-RUN apk add --no-cache \
+# Install ALL dependencies untuk opus dan voice
+RUN apt-get update && apt-get install -y \
     python3 \
-    py3-pip \
+    python3-pip \
     ffmpeg \
-    opus \
-    libsodium \
+    libopus0 \
+    libopus-dev \
+    libsodium23 \
+    libsodium-dev \
+    build-essential \
     curl \
-    && pip3 install --no-cache-dir --break-system-packages edge-tts \
-    && rm -rf /root/.cache /tmp/*
-
-# Create non-root user
-RUN addgroup -g 1001 botgroup && \
-    adduser -D -u 1001 -G botgroup botuser
+    ca-certificates \
+    && pip3 install --break-system-packages edge-tts \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /root/.cache
 
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies (npm install, bukan npm ci)
+# Install dependencies
 RUN npm install --omit=dev && npm cache clean --force
 
 # Copy source code
-COPY --chown=botuser:botgroup . .
+COPY . .
 
 # Create directories
-RUN mkdir -p temp data logs && \
-    chown -R botuser:botgroup temp data logs && \
-    chmod 755 temp data logs
-
-# Switch to non-root user
-USER botuser
+RUN mkdir -p temp data logs && chmod 755 temp data logs
 
 # Environment
 ENV NODE_ENV=production
