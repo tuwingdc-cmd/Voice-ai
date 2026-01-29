@@ -809,13 +809,47 @@ function createModeButtons(guildId) {
 
 // ==================== INTERACTION HANDLER ====================
 
-client.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isStringSelectMenu() && !interaction.isButton()) return;
+// ==================== INTERACTION HANDLER ====================
 
-    // Handle Dynamic Manager
-    if (interaction.customId.startsWith('dm_')) {
+client.on(Events.InteractionCreate, async (interaction) => {
+    // Handle Dynamic Manager (termasuk Modal Submit)
+    if (interaction.customId?.startsWith('dm_')) {
         return manager.handleInteraction(interaction);
     }
+    
+    // Skip jika bukan select menu atau button
+    if (!interaction.isStringSelectMenu() && !interaction.isButton()) return;
+
+    if (!isAdmin(interaction.user.id)) {
+        return interaction.reply({ content: '❌ Admin only', ephemeral: true });
+    }
+
+    const guildId = interaction.guild.id;
+
+    try {
+        if (interaction.customId === 'sel_ai') {
+            updateSettings(guildId, 'aiProvider', interaction.values[0]);
+            const p = AI_PROVIDERS[interaction.values[0]];
+            if (p?.models[0]) updateSettings(guildId, 'aiModel', p.models[0].id);
+        } else if (interaction.customId === 'sel_model') {
+            updateSettings(guildId, 'aiModel', interaction.values[0]);
+        } else if (interaction.customId === 'sel_voice') {
+            updateSettings(guildId, 'ttsVoice', interaction.values[0]);
+        } else if (interaction.customId === 'search_toggle') {
+            const s = getSettings(guildId);
+            updateSettings(guildId, 'searchEnabled', !s.searchEnabled);
+        } else if (interaction.customId === 'grounding_toggle') {
+            const s = getSettings(guildId);
+            updateSettings(guildId, 'geminiGrounding', !s.geminiGrounding);
+        }
+
+        const comps = [createProviderMenu(guildId), createModelMenu(guildId), createVoiceMenu(guildId), createModeButtons(guildId)].filter(Boolean);
+        await interaction.update({ embeds: [createSettingsEmbed(guildId)], components: comps });
+
+    } catch (e) {
+        interaction.reply({ content: `❌ ${e.message}`, ephemeral: true }).catch(() => {});
+    }
+});
 
     if (!isAdmin(interaction.user.id)) {
         return interaction.reply({ content: '❌ Admin only', ephemeral: true });
