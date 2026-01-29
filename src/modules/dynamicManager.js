@@ -1,7 +1,7 @@
 // ============================================================
-//         DYNAMIC API & MODEL MANAGER v2.2
+//         DYNAMIC API & MODEL MANAGER v2.3
 //         Full Embed UI + Multi Provider Sync
-//         Fixed: Pollinations Free + API + Full Models
+//         Synced with index.js v2.18.0 models
 // ============================================================
 
 const Redis = require('ioredis');
@@ -59,9 +59,84 @@ class DynamicManager {
         }
     }
 
+    // ==================== POLLINATIONS MODELS (SHARED) ====================
+    
+    getPollinationsModels() {
+        return [
+            // OpenAI Models
+            { id: 'openai', name: 'OpenAI GPT' },
+            { id: 'openai-fast', name: 'OpenAI Fast' },
+            { id: 'openai-large', name: 'OpenAI Large' },
+            { id: 'openai-reasoning', name: 'OpenAI Reasoning (o3-mini)' },
+            { id: 'openai-audio', name: 'OpenAI Audio (GPT-4o-audio)' },
+            // Claude Models
+            { id: 'claude', name: 'Claude' },
+            { id: 'claude-fast', name: 'Claude Fast' },
+            { id: 'claude-large', name: 'Claude Large' },
+            { id: 'claude-haiku', name: 'Claude Haiku' },
+            { id: 'claude-sonnet', name: 'Claude Sonnet' },
+            { id: 'claude-opus', name: 'Claude Opus' },
+            // Gemini Models
+            { id: 'gemini', name: 'Gemini' },
+            { id: 'gemini-fast', name: 'Gemini Fast' },
+            { id: 'gemini-large', name: 'Gemini Large' },
+            { id: 'gemini-search', name: 'Gemini Search' },
+            { id: 'gemini-legacy', name: 'Gemini Legacy' },
+            { id: 'gemini-thinking', name: 'Gemini Thinking' },
+            // DeepSeek Models
+            { id: 'deepseek', name: 'DeepSeek' },
+            { id: 'deepseek-v3', name: 'DeepSeek V3' },
+            { id: 'deepseek-r1', name: 'DeepSeek R1' },
+            { id: 'deepseek-reasoning', name: 'DeepSeek Reasoning' },
+            // Qwen Models
+            { id: 'qwen', name: 'Qwen' },
+            { id: 'qwen-coder', name: 'Qwen Coder' },
+            // Llama Models
+            { id: 'llama', name: 'Llama' },
+            { id: 'llamalight', name: 'Llama Light (70B)' },
+            // Mistral Models
+            { id: 'mistral', name: 'Mistral' },
+            { id: 'mistral-small', name: 'Mistral Small' },
+            { id: 'mistral-large', name: 'Mistral Large' },
+            // Perplexity Models
+            { id: 'perplexity-fast', name: 'Perplexity Fast' },
+            { id: 'perplexity-reasoning', name: 'Perplexity Reasoning' },
+            // Chinese AI Models
+            { id: 'kimi', name: 'Kimi' },
+            { id: 'kimi-large', name: 'Kimi Large' },
+            { id: 'kimi-reasoning', name: 'Kimi Reasoning' },
+            { id: 'glm', name: 'GLM' },
+            { id: 'minimax', name: 'MiniMax' },
+            // Grok Models
+            { id: 'grok', name: 'Grok' },
+            { id: 'grok-fast', name: 'Grok Fast' },
+            // Amazon Nova
+            { id: 'nova-fast', name: 'Nova Fast (Amazon)' },
+            // Microsoft Phi
+            { id: 'phi', name: 'Phi (Microsoft)' },
+            // Search/Tool Models
+            { id: 'searchgpt', name: 'SearchGPT' },
+            // Creative/Art Models
+            { id: 'midijourney', name: 'Midijourney' },
+            { id: 'unity', name: 'Unity' },
+            { id: 'rtist', name: 'Rtist' },
+            // Special/Character Models
+            { id: 'evil', name: 'Evil Mode (Uncensored)' },
+            { id: 'p1', name: 'P1' },
+            { id: 'hormoz', name: 'Hormoz' },
+            { id: 'sur', name: 'Sur' },
+            { id: 'bidara', name: 'Bidara' },
+            // Education/Utility Models
+            { id: 'chickytutor', name: 'ChickyTutor (Education)' },
+            { id: 'nomnom', name: 'NomNom (Food)' }
+        ];
+    }
+
     // ==================== PROVIDER CONFIGS ====================
     
     getProviders() {
+        const pollinationsModels = this.getPollinationsModels();
+        
         return {
             gemini: {
                 name: 'Google Gemini',
@@ -70,14 +145,15 @@ class DynamicManager {
                 syncable: true,
                 requiresKey: true,
                 defaultModels: [
-                    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
                     { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
+                    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
                     { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite' },
                     { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
                     { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite' },
+                    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' },
                     { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
-                    { id: 'gemini-1.5-flash-8b', name: 'Gemini 1.5 Flash 8B' },
-                    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' }
+                    { id: 'gemini-2.5-flash-preview-05-20', name: 'Gemini 2.5 Flash Preview' },
+                    { id: 'gemini-2.5-pro-preview-05-06', name: 'Gemini 2.5 Pro Preview' }
                 ]
             },
             groq: {
@@ -89,13 +165,16 @@ class DynamicManager {
                 defaultModels: [
                     { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile' },
                     { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant' },
-                    { id: 'llama-3.1-70b-versatile', name: 'Llama 3.1 70B Versatile' },
-                    { id: 'llama-3.2-1b-preview', name: 'Llama 3.2 1B Preview' },
-                    { id: 'llama-3.2-3b-preview', name: 'Llama 3.2 3B Preview' },
+                    { id: 'openai/gpt-oss-120b', name: 'GPT OSS 120B' },
+                    { id: 'openai/gpt-oss-20b', name: 'GPT OSS 20B' },
                     { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B' },
                     { id: 'gemma2-9b-it', name: 'Gemma 2 9B' },
-                    { id: 'whisper-large-v3', name: 'Whisper Large V3' },
-                    { id: 'whisper-large-v3-turbo', name: 'Whisper V3 Turbo' }
+                    { id: 'meta-llama/llama-4-maverick-17b-128e-instruct', name: 'Llama 4 Maverick' },
+                    { id: 'meta-llama/llama-4-scout-17b-16e-instruct', name: 'Llama 4 Scout' },
+                    { id: 'moonshotai/kimi-k2-instruct-0905', name: 'Kimi K2' },
+                    { id: 'qwen/qwen-3-32b', name: 'Qwen 3 32B' },
+                    { id: 'llama-3-groq-70b-tool-use', name: 'Llama 3 70B Tool' },
+                    { id: 'llama-3-groq-8b-tool-use', name: 'Llama 3 8B Tool' }
                 ]
             },
             openrouter: {
@@ -111,10 +190,10 @@ class DynamicManager {
                     { id: 'liquid/lfm-2.5-1.2b-instruct:free', name: 'LFM2.5-1.2B-Instruct (free)' },
                     { id: 'allenai/molmo-2-8b:free', name: 'Molmo2 8B (free)' },
                     { id: 'tngtech/deepseek-r1t-chimera:free', name: 'R1T Chimera (free)' },
-                    { id: 'tngtech/deepseek-r1t2-chimera:free', name: 'DeepSeek R1T2 Chimera (free)' },
                     { id: 'z-ai/glm-4.5-air:free', name: 'GLM 4.5 Air (free)' },
                     { id: 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free', name: 'Uncensored (free)' },
                     { id: 'google/gemma-3n-e2b-it:free', name: 'Gemma 3n 2B (free)' },
+                    { id: 'tngtech/deepseek-r1t2-chimera:free', name: 'DeepSeek R1T2 Chimera (free)' },
                     { id: 'deepseek/deepseek-r1-0528:free', name: 'R1 0528 (free)' },
                     { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 3.1 24B (free)' },
                     { id: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (free)' },
@@ -132,23 +211,7 @@ class DynamicManager {
                 keyPrefix: '',
                 syncable: true,
                 requiresKey: false,
-                defaultModels: [
-                    // Basic models only - no API key needed
-                    { id: 'openai', name: 'OpenAI GPT' },
-                    { id: 'claude', name: 'Claude' },
-                    { id: 'gemini', name: 'Gemini' },
-                    { id: 'deepseek', name: 'DeepSeek' },
-                    { id: 'deepseek-r1', name: 'DeepSeek R1' },
-                    { id: 'qwen', name: 'Qwen' },
-                    { id: 'llama', name: 'Llama' },
-                    { id: 'mistral', name: 'Mistral' },
-                    { id: 'unity', name: 'Unity' },
-                    { id: 'midijourney', name: 'Midijourney' },
-                    { id: 'rtist', name: 'Rtist' },
-                    { id: 'searchgpt', name: 'SearchGPT' },
-                    { id: 'evil', name: 'Evil Mode (Uncensored)' },
-                    { id: 'p1', name: 'P1' }
-                ]
+                defaultModels: pollinationsModels
             },
             pollinations_api: {
                 name: 'Pollinations (API)',
@@ -156,73 +219,7 @@ class DynamicManager {
                 keyPrefix: '',
                 syncable: true,
                 requiresKey: true,
-                defaultModels: [
-                    // OpenAI Models
-                    { id: 'openai', name: 'OpenAI GPT' },
-                    { id: 'openai-fast', name: 'OpenAI Fast' },
-                    { id: 'openai-large', name: 'OpenAI Large' },
-                    { id: 'openai-reasoning', name: 'OpenAI Reasoning (o3-mini)' },
-                    { id: 'openai-audio', name: 'OpenAI Audio (GPT-4o-audio)' },
-                    // Claude Models
-                    { id: 'claude', name: 'Claude' },
-                    { id: 'claude-fast', name: 'Claude Fast' },
-                    { id: 'claude-large', name: 'Claude Large' },
-                    { id: 'claude-haiku', name: 'Claude Haiku' },
-                    { id: 'claude-sonnet', name: 'Claude Sonnet' },
-                    { id: 'claude-opus', name: 'Claude Opus' },
-                    { id: 'claude-hybridspace', name: 'Claude Hybridspace' },
-                    // Gemini Models
-                    { id: 'gemini', name: 'Gemini' },
-                    { id: 'gemini-fast', name: 'Gemini Fast' },
-                    { id: 'gemini-large', name: 'Gemini Large' },
-                    { id: 'gemini-search', name: 'Gemini Search' },
-                    { id: 'gemini-thinking', name: 'Gemini Thinking' },
-                    // DeepSeek Models
-                    { id: 'deepseek', name: 'DeepSeek' },
-                    { id: 'deepseek-v3', name: 'DeepSeek V3' },
-                    { id: 'deepseek-r1', name: 'DeepSeek R1' },
-                    { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner' },
-                    // Qwen Models
-                    { id: 'qwen', name: 'Qwen' },
-                    { id: 'qwen-coder', name: 'Qwen Coder' },
-                    // Llama Models
-                    { id: 'llama', name: 'Llama' },
-                    { id: 'llamalight', name: 'Llama Light (70B)' },
-                    { id: 'llama-scaleway', name: 'Llama Scaleway' },
-                    // Mistral Models
-                    { id: 'mistral', name: 'Mistral' },
-                    { id: 'mistral-small', name: 'Mistral Small' },
-                    { id: 'mistral-large', name: 'Mistral Large' },
-                    // Grok Models
-                    { id: 'grok', name: 'Grok' },
-                    { id: 'grok-fast', name: 'Grok Fast' },
-                    // Kimi Models
-                    { id: 'kimi', name: 'Kimi' },
-                    { id: 'kimi-large', name: 'Kimi Large' },
-                    { id: 'kimi-reasoning', name: 'Kimi Reasoning' },
-                    // Other Models
-                    { id: 'glm', name: 'GLM' },
-                    { id: 'minimax', name: 'MiniMax' },
-                    { id: 'nova-fast', name: 'Amazon Nova Fast' },
-                    { id: 'phi', name: 'Microsoft Phi' },
-                    // Search/Tool Models
-                    { id: 'searchgpt', name: 'SearchGPT' },
-                    { id: 'perplexity-fast', name: 'Perplexity Fast' },
-                    { id: 'perplexity-reasoning', name: 'Perplexity Reasoning' },
-                    // Creative/Art Models
-                    { id: 'midijourney', name: 'Midijourney' },
-                    { id: 'unity', name: 'Unity' },
-                    { id: 'rtist', name: 'Rtist' },
-                    // Special Models
-                    { id: 'evil', name: 'Evil Mode (Uncensored)' },
-                    { id: 'p1', name: 'P1' },
-                    { id: 'hormoz', name: 'Hormoz' },
-                    { id: 'sur', name: 'Sur' },
-                    { id: 'bidara', name: 'Bidara' },
-                    // Education/Utility
-                    { id: 'chickytutor', name: 'ChickyTutor (Education)' },
-                    { id: 'nomnom', name: 'NomNom (Food)' }
-                ]
+                defaultModels: pollinationsModels
             },
             huggingface: {
                 name: 'HuggingFace',
@@ -231,12 +228,15 @@ class DynamicManager {
                 syncable: true,
                 requiresKey: true,
                 defaultModels: [
-                    { id: 'meta-llama/Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B' },
+                    { id: 'meta-llama/Meta-Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B' },
                     { id: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B' },
+                    { id: 'HuggingFaceH4/zephyr-7b-beta', name: 'Zephyr 7B' },
+                    { id: 'mistralai/Mistral-7B-Instruct-v0.1', name: 'Mistral 7B' },
                     { id: 'mistralai/Mixtral-8x7B-Instruct-v0.1', name: 'Mixtral 8x7B' },
+                    { id: 'google/flan-t5-large', name: 'Flan T5 Large' },
+                    { id: 'EleutherAI/gpt-j-6B', name: 'GPT-J 6B' },
                     { id: 'Qwen/Qwen2.5-72B-Instruct', name: 'Qwen 2.5 72B' },
-                    { id: 'google/gemma-2-27b-it', name: 'Gemma 2 27B' },
-                    { id: 'HuggingFaceH4/zephyr-7b-beta', name: 'Zephyr 7B' }
+                    { id: 'google/gemma-2-27b-it', name: 'Gemma 2 27B' }
                 ]
             },
             elevenlabs: {
@@ -562,7 +562,6 @@ class DynamicManager {
         for (const [key, config] of Object.entries(providers)) {
             const s = status[key] || { keys: 0, models: 0, active: 0 };
             
-            // For providers that don't require key
             if (!config.requiresKey) {
                 apiList += `${config.icon} **${config.name}**: 🟢 Free\n`;
             } else {
@@ -584,7 +583,7 @@ class DynamicManager {
                 { name: '🤖 Models', value: modelList || '*Belum ada*', inline: true },
                 { name: '📊 Status', value: `Redis: ${this.connected ? '🟢 Connected' : '🔴 Offline (using ENV)'}`, inline: false }
             )
-            .setFooter({ text: 'v2.2 • Pollinations Free + API' })
+            .setFooter({ text: 'v2.3 • Synced with index.js v2.18.0' })
             .setTimestamp();
     }
     
@@ -609,7 +608,7 @@ class DynamicManager {
         const options = Object.entries(providers)
             .filter(([key, config]) => {
                 if (type === 'api') {
-                    return config.requiresKey; // Only show providers that need API key
+                    return config.requiresKey;
                 }
                 return config.syncable;
             })
