@@ -21,7 +21,6 @@ class DynamicManager {
         this.adminIds = adminIds;
         this.redis = null;
         this.connected = false;
-        this.pendingApiKey = new Map(); // Untuk collect API key
         
         if (redisUrl) {
             this.redis = new Redis(redisUrl, {
@@ -46,109 +45,101 @@ class DynamicManager {
     // ==================== PROVIDER CONFIGS ====================
     
     getProviders() {
-    return {
-        gemini: {
-            name: 'Google Gemini',
-            icon: '🔵',
-            keyPrefix: 'AIza',
-            syncable: true,
-            defaultModels: [
-                { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
-                { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
-                { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
-                { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite' },
-                { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
-                { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' }
-            ]
-        },
-        groq: {
-            name: 'Groq',
-            icon: '🟠',
-            keyPrefix: 'gsk_',
-            syncable: true,
-            defaultModels: [
-                { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B' },
-                { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B' },
-                { id: 'llama-3.1-70b-versatile', name: 'Llama 3.1 70B' },
-                { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B' },
-                { id: 'gemma2-9b-it', name: 'Gemma 2 9B' }
-            ]
-        },
-        openrouter: {
-            name: 'OpenRouter',
-            icon: '🟣',
-            keyPrefix: 'sk-or-',
-            syncable: true,
-            syncUrl: 'https://openrouter.ai/api/v1/models'
-        },
-        pollinations: {
-            name: 'Pollinations',
-            icon: '🌸',
-            keyPrefix: '',
-            syncable: true,
-            defaultModels: [
-                { id: 'openai', name: 'OpenAI GPT' },
-                { id: 'openai-fast', name: 'OpenAI Fast' },
-                { id: 'openai-large', name: 'OpenAI Large' },
-                { id: 'openai-reasoning', name: 'OpenAI Reasoning' },
-                { id: 'claude', name: 'Claude' },
-                { id: 'claude-fast', name: 'Claude Fast' },
-                { id: 'claude-large', name: 'Claude Large' },
-                { id: 'claude-haiku', name: 'Claude Haiku' },
-                { id: 'claude-sonnet', name: 'Claude Sonnet' },
-                { id: 'gemini', name: 'Gemini' },
-                { id: 'gemini-fast', name: 'Gemini Fast' },
-                { id: 'gemini-large', name: 'Gemini Large' },
-                { id: 'gemini-thinking', name: 'Gemini Thinking' },
-                { id: 'deepseek', name: 'DeepSeek' },
-                { id: 'deepseek-r1', name: 'DeepSeek R1' },
-                { id: 'deepseek-reasoning', name: 'DeepSeek Reasoning' },
-                { id: 'qwen', name: 'Qwen' },
-                { id: 'qwen-coder', name: 'Qwen Coder' },
-                { id: 'llama', name: 'Llama' },
-                { id: 'mistral', name: 'Mistral' },
-                { id: 'mistral-large', name: 'Mistral Large' },
-                { id: 'grok', name: 'Grok' },
-                { id: 'kimi', name: 'Kimi' },
-                { id: 'searchgpt', name: 'SearchGPT' },
-                { id: 'evil', name: 'Evil Mode' }
-            ]
-        },
-        huggingface: {
-            name: 'HuggingFace',
-            icon: '🟡',
-            keyPrefix: 'hf_',
-            syncable: false,
-            defaultModels: [
-                { id: 'meta-llama/Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B' },
-                { id: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B' },
-                { id: 'mistralai/Mixtral-8x7B-Instruct-v0.1', name: 'Mixtral 8x7B' },
-                { id: 'Qwen/Qwen2.5-72B-Instruct', name: 'Qwen 2.5 72B' }
-            ]
-        },
-        elevenlabs: {
-            name: 'ElevenLabs',
-            icon: '🎙️',
-            keyPrefix: '',
-            syncable: false,
-            defaultModels: []
-        },
-        tavily: {
-            name: 'Tavily Search',
-            icon: '🔍',
-            keyPrefix: 'tvly-',
-            syncable: false,
-            defaultModels: []
-        },
-        serper: {
-            name: 'Serper Search',
-            icon: '🔎',
-            keyPrefix: '',
-            syncable: false,
-            defaultModels: []
-        }
-    };
-}
+        return {
+            gemini: {
+                name: 'Google Gemini',
+                icon: '🔵',
+                keyPrefix: 'AIza',
+                syncable: true,
+                defaultModels: [
+                    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+                    { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
+                    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
+                    { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite' },
+                    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
+                    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' }
+                ]
+            },
+            groq: {
+                name: 'Groq',
+                icon: '🟠',
+                keyPrefix: 'gsk_',
+                syncable: true,
+                defaultModels: [
+                    { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B' },
+                    { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B' },
+                    { id: 'llama-3.1-70b-versatile', name: 'Llama 3.1 70B' },
+                    { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B' },
+                    { id: 'gemma2-9b-it', name: 'Gemma 2 9B' }
+                ]
+            },
+            openrouter: {
+                name: 'OpenRouter',
+                icon: '🟣',
+                keyPrefix: 'sk-or-',
+                syncable: true,
+                defaultModels: []
+            },
+            pollinations: {
+                name: 'Pollinations',
+                icon: '🌸',
+                keyPrefix: '',
+                syncable: true,
+                defaultModels: [
+                    { id: 'openai', name: 'OpenAI GPT' },
+                    { id: 'openai-large', name: 'OpenAI Large' },
+                    { id: 'openai-reasoning', name: 'OpenAI Reasoning' },
+                    { id: 'claude', name: 'Claude' },
+                    { id: 'claude-haiku', name: 'Claude Haiku' },
+                    { id: 'claude-sonnet', name: 'Claude Sonnet' },
+                    { id: 'gemini', name: 'Gemini' },
+                    { id: 'gemini-thinking', name: 'Gemini Thinking' },
+                    { id: 'deepseek', name: 'DeepSeek' },
+                    { id: 'deepseek-r1', name: 'DeepSeek R1' },
+                    { id: 'qwen', name: 'Qwen' },
+                    { id: 'qwen-coder', name: 'Qwen Coder' },
+                    { id: 'llama', name: 'Llama' },
+                    { id: 'mistral', name: 'Mistral' },
+                    { id: 'grok', name: 'Grok' },
+                    { id: 'kimi', name: 'Kimi' },
+                    { id: 'searchgpt', name: 'SearchGPT' },
+                    { id: 'evil', name: 'Evil Mode' }
+                ]
+            },
+            huggingface: {
+                name: 'HuggingFace',
+                icon: '🟡',
+                keyPrefix: 'hf_',
+                syncable: true,
+                defaultModels: [
+                    { id: 'meta-llama/Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B' },
+                    { id: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B' },
+                    { id: 'mistralai/Mixtral-8x7B-Instruct-v0.1', name: 'Mixtral 8x7B' }
+                ]
+            },
+            elevenlabs: {
+                name: 'ElevenLabs',
+                icon: '🎙️',
+                keyPrefix: '',
+                syncable: false,
+                defaultModels: []
+            },
+            tavily: {
+                name: 'Tavily Search',
+                icon: '🔍',
+                keyPrefix: 'tvly-',
+                syncable: false,
+                defaultModels: []
+            },
+            serper: {
+                name: 'Serper Search',
+                icon: '🔎',
+                keyPrefix: '',
+                syncable: false,
+                defaultModels: []
+            }
+        };
+    }
 
     // ==================== HELPERS ====================
     
@@ -284,7 +275,6 @@ class DynamicManager {
         const models = await this.redisGet(`models:${provider}`);
         if (models && models.length > 0) return models;
         
-        // Return default models if empty
         const providerConfig = this.getProviders()[provider];
         return providerConfig?.defaultModels || [];
     }
@@ -313,47 +303,22 @@ class DynamicManager {
     }
     
     async syncModels(provider) {
-    const providers = this.getProviders();
-    const config = providers[provider];
-    
-    if (!config) return { success: false, error: 'Provider tidak valid' };
-    
-    // OpenRouter - fetch from API
-    if (provider === 'openrouter') {
-        return this.syncOpenRouterModels();
+        const providers = this.getProviders();
+        const config = providers[provider];
+        
+        if (!config) return { success: false, error: 'Provider tidak valid' };
+        
+        if (provider === 'openrouter') {
+            return this.syncOpenRouterModels();
+        }
+        
+        if (config.defaultModels?.length > 0) {
+            await this.redisSet(`models:${provider}`, config.defaultModels);
+            return { success: true, count: config.defaultModels.length };
+        }
+        
+        return { success: false, error: 'Tidak ada models untuk sync' };
     }
-    
-    // Groq - use default models
-    if (provider === 'groq') {
-        return this.syncGroqModels();
-    }
-    
-    // Pollinations - use default models
-    if (provider === 'pollinations') {
-        await this.redisSet(`models:${provider}`, config.defaultModels);
-        return { success: true, count: config.defaultModels.length };
-    }
-    
-    // Gemini - use default models
-    if (provider === 'gemini') {
-        await this.redisSet(`models:${provider}`, config.defaultModels);
-        return { success: true, count: config.defaultModels.length };
-    }
-    
-    // HuggingFace - use default models
-    if (provider === 'huggingface') {
-        await this.redisSet(`models:${provider}`, config.defaultModels);
-        return { success: true, count: config.defaultModels.length };
-    }
-    
-    // Others - use default if available
-    if (config.defaultModels?.length > 0) {
-        await this.redisSet(`models:${provider}`, config.defaultModels);
-        return { success: true, count: config.defaultModels.length };
-    }
-    
-    return { success: false, error: 'Provider tidak mendukung sync' };
-}
     
     async syncOpenRouterModels() {
         return new Promise((resolve) => {
@@ -380,18 +345,6 @@ class DynamicManager {
             }).on('error', (e) => resolve({ success: false, error: e.message }));
         });
     }
-    
-    async syncGroqModels() {
-        const defaultGroqModels = [
-            { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile' },
-            { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant' },
-            { id: 'llama-3.1-70b-versatile', name: 'Llama 3.1 70B Versatile' },
-            { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B' },
-            { id: 'gemma2-9b-it', name: 'Gemma 2 9B' }
-        ];
-        await this.redisSet('models:groq', defaultGroqModels);
-        return { success: true, count: defaultGroqModels.length };
-    }
 
     // ==================== EMBED UI ====================
     
@@ -406,7 +359,7 @@ class DynamicManager {
             apiList += `${config.icon} **${config.name}**: ${keyIcon} ${s.keys} keys\n`;
             
             if (s.models > 0) {
-                modelList += `${config.icon} ${config.name}: ${s.models} models\n`;
+                modelList += `${config.icon} ${config.name}: ${s.models}\n`;
             }
         }
         
@@ -430,40 +383,29 @@ class DynamicManager {
                     .setCustomId('dm_main_menu')
                     .setPlaceholder('📋 Pilih Menu')
                     .addOptions([
-                        { label: '🔑 Kelola API Keys', value: 'api_menu', description: 'Tambah/hapus API keys', emoji: '🔑' },
-                        { label: '🤖 Kelola Models', value: 'model_menu', description: 'Tambah/hapus AI models', emoji: '🤖' },
-                        { label: '🔄 Sync All Models', value: 'sync_all', description: 'Sync models dari semua provider', emoji: '🔄' },
-                        { label: '📊 Pool Status', value: 'pool_status', description: 'Lihat status detail', emoji: '📊' }
+                        { label: '🔑 Kelola API Keys', value: 'api_menu', description: 'Tambah/hapus API keys' },
+                        { label: '🤖 Kelola Models', value: 'model_menu', description: 'Tambah/hapus AI models' },
+                        { label: '🔄 Sync All Models', value: 'sync_all', description: 'Sync models dari semua provider' },
+                        { label: '📊 Pool Status', value: 'pool_status', description: 'Lihat status detail' }
                     ])
             )
         ];
     }
     
-    createProviderSelectEmbed(type) {
-        const providers = this.getProviders();
-        const title = type === 'api' ? '🔑 Pilih Provider untuk API Key' : '🤖 Pilih Provider untuk Models';
-        
-        return new EmbedBuilder()
-            .setColor(0x3498DB)
-            .setTitle(title)
-            .setDescription('Pilih provider dari dropdown di bawah')
-            .setTimestamp();
-    }
-    
     createProviderSelect(type) {
         const providers = this.getProviders();
         const options = Object.entries(providers)
-            .filter(([key, config]) => type === 'api' || config.defaultModels !== undefined || config.syncable)
+            .filter(([key, config]) => type === 'api' || config.syncable)
             .map(([key, config]) => ({
                 label: config.name,
-                value: `${type}_${key}`,
+                value: key,
                 emoji: config.icon
             }));
         
         return [
             new ActionRowBuilder().addComponents(
                 new StringSelectMenuBuilder()
-                    .setCustomId(`dm_${type}_provider`)
+                    .setCustomId(`dm_select_${type}`)
                     .setPlaceholder(`Pilih Provider`)
                     .addOptions(options.slice(0, 25))
             ),
@@ -476,6 +418,14 @@ class DynamicManager {
     async createApiKeyEmbed(provider) {
         const providers = this.getProviders();
         const config = providers[provider];
+        
+        if (!config) {
+            return new EmbedBuilder()
+                .setColor(0xFF0000)
+                .setTitle('❌ Provider tidak ditemukan')
+                .setDescription(`Provider "${provider}" tidak valid`);
+        }
+        
         const keys = await this.getApiKeys(provider);
         
         let keyList = '';
@@ -503,9 +453,9 @@ class DynamicManager {
     createApiKeyButtons(provider) {
         return [
             new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`dm_add_key_${provider}`).setLabel('➕ Tambah Key').setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId(`dm_remove_key_${provider}`).setLabel('➖ Hapus Key').setStyle(ButtonStyle.Danger),
-                new ButtonBuilder().setCustomId(`dm_test_key_${provider}`).setLabel('🧪 Test Key').setStyle(ButtonStyle.Primary)
+                new ButtonBuilder().setCustomId(`dm_addkey_${provider}`).setLabel('➕ Tambah Key').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId(`dm_removekey_${provider}`).setLabel('➖ Hapus Key').setStyle(ButtonStyle.Danger),
+                new ButtonBuilder().setCustomId(`dm_testkey_${provider}`).setLabel('🧪 Test Key').setStyle(ButtonStyle.Primary)
             ),
             new ActionRowBuilder().addComponents(
                 new ButtonBuilder().setCustomId('dm_back_main').setLabel('⬅️ Kembali').setStyle(ButtonStyle.Secondary)
@@ -516,6 +466,14 @@ class DynamicManager {
     async createModelEmbed(provider) {
         const providers = this.getProviders();
         const config = providers[provider];
+        
+        if (!config) {
+            return new EmbedBuilder()
+                .setColor(0xFF0000)
+                .setTitle('❌ Provider tidak ditemukan')
+                .setDescription(`Provider "${provider}" tidak valid`);
+        }
+        
         const models = await this.getModels(provider);
         
         let modelList = '';
@@ -524,7 +482,7 @@ class DynamicManager {
                 modelList += `${i + 1}. \`${m.id}\`\n   └ ${m.name}\n`;
             });
             if (models.length > 15) {
-                modelList += `\n... dan ${models.length - 15} model lainnya`;
+                modelList += `\n... dan ${models.length - 15} lainnya`;
             }
         } else {
             modelList = '*Belum ada model - Gunakan Sync*';
@@ -547,11 +505,11 @@ class DynamicManager {
         const config = providers[provider];
         
         const buttons = [
-            new ButtonBuilder().setCustomId(`dm_add_model_${provider}`).setLabel('➕ Tambah Model').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId(`dm_remove_model_${provider}`).setLabel('➖ Hapus Model').setStyle(ButtonStyle.Danger)
+            new ButtonBuilder().setCustomId(`dm_addmodel_${provider}`).setLabel('➕ Tambah Model').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`dm_removemodel_${provider}`).setLabel('➖ Hapus Model').setStyle(ButtonStyle.Danger)
         ];
         
-        if (config.syncable) {
+        if (config?.syncable) {
             buttons.push(
                 new ButtonBuilder().setCustomId(`dm_sync_${provider}`).setLabel('🔄 Sync Models').setStyle(ButtonStyle.Primary)
             );
@@ -560,7 +518,7 @@ class DynamicManager {
         return [
             new ActionRowBuilder().addComponents(buttons),
             new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`dm_clear_models_${provider}`).setLabel('🗑️ Clear All').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId(`dm_clearmodels_${provider}`).setLabel('🗑️ Clear All').setStyle(ButtonStyle.Secondary),
                 new ButtonBuilder().setCustomId('dm_back_main').setLabel('⬅️ Kembali').setStyle(ButtonStyle.Secondary)
             )
         ];
@@ -571,7 +529,7 @@ class DynamicManager {
             .setCustomId(`dm_modal_${type}_${provider}`)
             .setTitle(title);
         
-        if (type === 'add_key') {
+        if (type === 'addkey') {
             modal.addComponents(
                 new ActionRowBuilder().addComponents(
                     new TextInputBuilder()
@@ -590,7 +548,7 @@ class DynamicManager {
                         .setRequired(false)
                 )
             );
-        } else if (type === 'add_model') {
+        } else if (type === 'addmodel') {
             modal.addComponents(
                 new ActionRowBuilder().addComponents(
                     new TextInputBuilder()
@@ -609,7 +567,7 @@ class DynamicManager {
                         .setRequired(true)
                 )
             );
-        } else if (type === 'remove_key' || type === 'remove_model') {
+        } else if (type === 'removekey' || type === 'removemodel') {
             modal.addComponents(
                 new ActionRowBuilder().addComponents(
                     new TextInputBuilder()
@@ -648,34 +606,36 @@ class DynamicManager {
         const customId = interaction.customId;
         
         try {
-            // ===== MODAL SUBMISSIONS =====
+            // Modal Submit
             if (interaction.isModalSubmit()) {
                 return this.handleModalSubmit(interaction);
             }
             
-            // ===== MAIN MENU SELECT =====
+            // Main Menu Select
             if (customId === 'dm_main_menu') {
                 const value = interaction.values[0];
                 
                 if (value === 'api_menu') {
                     await interaction.update({
-                        embeds: [this.createProviderSelectEmbed('api')],
+                        content: '**🔑 Pilih Provider untuk API Key:**',
+                        embeds: [],
                         components: this.createProviderSelect('api')
                     });
                 }
                 else if (value === 'model_menu') {
                     await interaction.update({
-                        embeds: [this.createProviderSelectEmbed('model')],
+                        content: '**🤖 Pilih Provider untuk Models:**',
+                        embeds: [],
                         components: this.createProviderSelect('model')
                     });
                 }
                 else if (value === 'sync_all') {
                     await interaction.deferUpdate();
-                    const providers = ['openrouter', 'groq', 'gemini'];
+                    const providers = ['openrouter', 'groq', 'gemini', 'pollinations', 'huggingface'];
                     let results = [];
                     for (const p of providers) {
                         const r = await this.syncModels(p);
-                        results.push(`${p}: ${r.success ? `✅ ${r.count}` : `❌ ${r.error}`}`);
+                        results.push(`${p}: ${r.success ? `✅ ${r.count}` : `❌`}`);
                     }
                     await interaction.followUp({
                         content: `**🔄 Sync Results:**\n${results.join('\n')}`,
@@ -687,108 +647,104 @@ class DynamicManager {
                     let text = '**📊 Detail Pool Status:**\n\n';
                     for (const [p, s] of Object.entries(status)) {
                         if (s.keys > 0 || s.models > 0) {
-                            text += `**${p}**\n`;
-                            text += `├ Keys: ${s.keys} (${s.active} active)\n`;
-                            text += `└ Models: ${s.models}\n\n`;
+                            text += `**${p}**: ${s.keys} keys, ${s.models} models\n`;
                         }
                     }
                     await interaction.reply({ content: text || 'Belum ada data', ephemeral: true });
                 }
             }
             
-            // ===== PROVIDER SELECT =====
-            else if (customId === 'dm_api_provider') {
-                const provider = interaction.values[0].replace('api_', '');
+            // Provider Select for API
+            else if (customId === 'dm_select_api') {
+                const provider = interaction.values[0];
                 await interaction.update({
+                    content: null,
                     embeds: [await this.createApiKeyEmbed(provider)],
                     components: this.createApiKeyButtons(provider)
                 });
             }
             
-            else if (customId === 'dm_model_provider') {
-                const provider = interaction.values[0].replace('model_', '');
+            // Provider Select for Models
+            else if (customId === 'dm_select_model') {
+                const provider = interaction.values[0];
                 await interaction.update({
+                    content: null,
                     embeds: [await this.createModelEmbed(provider)],
                     components: this.createModelButtons(provider)
                 });
             }
             
-            // ===== BACK BUTTON =====
+            // Back Button
             else if (customId === 'dm_back_main') {
                 const status = await this.getPoolStatus();
                 await interaction.update({
+                    content: null,
                     embeds: [this.createMainEmbed(status)],
                     components: this.createMainMenu()
                 });
             }
             
-            // ===== API KEY BUTTONS =====
-            else if (customId.startsWith('dm_add_key_')) {
-                const provider = customId.replace('dm_add_key_', '');
-                const modal = this.createInputModal('add_key', provider, `Tambah API Key - ${provider}`);
+            // Add Key Button
+            else if (customId.startsWith('dm_addkey_')) {
+                const provider = customId.replace('dm_addkey_', '');
+                const modal = this.createInputModal('addkey', provider, `Tambah API Key - ${provider}`);
                 await interaction.showModal(modal);
             }
             
-            else if (customId.startsWith('dm_remove_key_')) {
-                const provider = customId.replace('dm_remove_key_', '');
-                const modal = this.createInputModal('remove_key', provider, `Hapus API Key - ${provider}`);
+            // Remove Key Button
+            else if (customId.startsWith('dm_removekey_')) {
+                const provider = customId.replace('dm_removekey_', '');
+                const modal = this.createInputModal('removekey', provider, `Hapus API Key - ${provider}`);
                 await interaction.showModal(modal);
             }
             
-            else if (customId.startsWith('dm_test_key_')) {
-                const provider = customId.replace('dm_test_key_', '');
+            // Test Key Button
+            else if (customId.startsWith('dm_testkey_')) {
+                const provider = customId.replace('dm_testkey_', '');
                 const key = await this.getActiveKey(provider);
                 await interaction.reply({
-                    content: key ? `✅ Active key found: \`${this.maskKey(key)}\`` : '❌ Tidak ada active key',
+                    content: key ? `✅ Active key: \`${this.maskKey(key)}\`` : '❌ Tidak ada active key',
                     ephemeral: true
                 });
             }
             
-            // ===== MODEL BUTTONS =====
-            else if (customId.startsWith('dm_add_model_')) {
-                const provider = customId.replace('dm_add_model_', '');
-                const modal = this.createInputModal('add_model', provider, `Tambah Model - ${provider}`);
+            // Add Model Button
+            else if (customId.startsWith('dm_addmodel_')) {
+                const provider = customId.replace('dm_addmodel_', '');
+                const modal = this.createInputModal('addmodel', provider, `Tambah Model - ${provider}`);
                 await interaction.showModal(modal);
             }
             
-            else if (customId.startsWith('dm_remove_model_')) {
-                const provider = customId.replace('dm_remove_model_', '');
-                const modal = this.createInputModal('remove_model', provider, `Hapus Model - ${provider}`);
+            // Remove Model Button
+            else if (customId.startsWith('dm_removemodel_')) {
+                const provider = customId.replace('dm_removemodel_', '');
+                const modal = this.createInputModal('removemodel', provider, `Hapus Model - ${provider}`);
                 await interaction.showModal(modal);
             }
             
+            // Sync Button
             else if (customId.startsWith('dm_sync_')) {
                 const provider = customId.replace('dm_sync_', '');
                 await interaction.deferUpdate();
                 const result = await this.syncModels(provider);
                 
-                if (result.success) {
-                    await interaction.editReply({
-                        embeds: [await this.createModelEmbed(provider)],
-                        components: this.createModelButtons(provider)
-                    });
-                    await interaction.followUp({
-                        content: `✅ Synced ${result.count} models untuk ${provider}`,
-                        ephemeral: true
-                    });
-                } else {
-                    await interaction.followUp({
-                        content: `❌ Sync gagal: ${result.error}`,
-                        ephemeral: true
-                    });
-                }
-            }
-            
-            else if (customId.startsWith('dm_clear_models_')) {
-                const provider = customId.replace('dm_clear_models_', '');
-                await this.redisSet(`models:${provider}`, []);
-                await interaction.update({
+                await interaction.editReply({
                     embeds: [await this.createModelEmbed(provider)],
                     components: this.createModelButtons(provider)
                 });
                 await interaction.followUp({
-                    content: `🗑️ Semua models ${provider} dihapus`,
+                    content: result.success ? `✅ Synced ${result.count} models` : `❌ ${result.error}`,
                     ephemeral: true
+                });
+            }
+            
+            // Clear Models Button
+            else if (customId.startsWith('dm_clearmodels_')) {
+                const provider = customId.replace('dm_clearmodels_', '');
+                await this.redisSet(`models:${provider}`, []);
+                await interaction.update({
+                    embeds: [await this.createModelEmbed(provider)],
+                    components: this.createModelButtons(provider)
                 });
             }
             
@@ -796,119 +752,95 @@ class DynamicManager {
             console.error('DM Interaction Error:', e);
             const reply = { content: `❌ Error: ${e.message}`, ephemeral: true };
             if (interaction.replied || interaction.deferred) {
-                await interaction.followUp(reply);
+                await interaction.followUp(reply).catch(() => {});
             } else {
-                await interaction.reply(reply);
+                await interaction.reply(reply).catch(() => {});
             }
         }
     }
     
     async handleModalSubmit(interaction) {
-        const [, , type, provider] = interaction.customId.split('_');
+        // Format: dm_modal_addkey_gemini atau dm_modal_addmodel_pollinations
+        const parts = interaction.customId.split('_');
+        // ['dm', 'modal', 'addkey', 'gemini'] atau ['dm', 'modal', 'addmodel', 'pollinations']
+        const type = parts[2]; // 'addkey', 'removekey', 'addmodel', 'removemodel'
+        const provider = parts.slice(3).join('_'); // Handle provider names with underscores
         
         try {
-            if (type === 'add' && interaction.customId.includes('key')) {
+            if (type === 'addkey') {
                 const apiKey = interaction.fields.getTextInputValue('api_key');
                 const label = interaction.fields.getTextInputValue('key_label') || '';
                 
                 const result = await this.addApiKey(provider, apiKey, label);
                 
-                if (result.success) {
-                    await interaction.update({
-                        embeds: [await this.createApiKeyEmbed(provider)],
-                        components: this.createApiKeyButtons(provider)
-                    });
-                    await interaction.followUp({
-                        content: `✅ API key ditambahkan! Total: ${result.total}`,
-                        ephemeral: true
-                    });
-                } else {
-                    await interaction.reply({
-                        content: `❌ ${result.error}`,
-                        ephemeral: true
-                    });
-                }
+                await interaction.update({
+                    embeds: [await this.createApiKeyEmbed(provider)],
+                    components: this.createApiKeyButtons(provider)
+                });
+                
+                await interaction.followUp({
+                    content: result.success ? `✅ API key ditambahkan! Total: ${result.total}` : `❌ ${result.error}`,
+                    ephemeral: true
+                });
             }
             
-            else if (type === 'remove' && interaction.customId.includes('key')) {
+            else if (type === 'removekey') {
                 const idx = parseInt(interaction.fields.getTextInputValue('item_number')) - 1;
                 const result = await this.removeApiKey(provider, idx);
                 
-                if (result.success) {
-                    await interaction.update({
-                        embeds: [await this.createApiKeyEmbed(provider)],
-                        components: this.createApiKeyButtons(provider)
-                    });
-                } else {
-                    await interaction.reply({
-                        content: `❌ ${result.error}`,
-                        ephemeral: true
-                    });
+                await interaction.update({
+                    embeds: [await this.createApiKeyEmbed(provider)],
+                    components: this.createApiKeyButtons(provider)
+                });
+                
+                if (!result.success) {
+                    await interaction.followUp({ content: `❌ ${result.error}`, ephemeral: true });
                 }
             }
             
-            else if (type === 'add' && interaction.customId.includes('model')) {
+            else if (type === 'addmodel') {
                 const modelId = interaction.fields.getTextInputValue('model_id');
                 const modelName = interaction.fields.getTextInputValue('model_name');
                 
                 const result = await this.addModel(provider, modelId, modelName);
                 
-                if (result.success) {
-                    await interaction.update({
-                        embeds: [await this.createModelEmbed(provider)],
-                        components: this.createModelButtons(provider)
-                    });
-                    await interaction.followUp({
-                        content: `✅ Model ditambahkan! Total: ${result.total}`,
-                        ephemeral: true
-                    });
-                } else {
-                    await interaction.reply({
-                        content: `❌ ${result.error}`,
-                        ephemeral: true
-                    });
-                }
+                await interaction.update({
+                    embeds: [await this.createModelEmbed(provider)],
+                    components: this.createModelButtons(provider)
+                });
+                
+                await interaction.followUp({
+                    content: result.success ? `✅ Model ditambahkan! Total: ${result.total}` : `❌ ${result.error}`,
+                    ephemeral: true
+                });
             }
             
-            else if (type === 'remove' && interaction.customId.includes('model')) {
+            else if (type === 'removemodel') {
                 const idx = parseInt(interaction.fields.getTextInputValue('item_number')) - 1;
                 const models = await this.getModels(provider);
                 
                 if (idx >= 0 && idx < models.length) {
                     const result = await this.removeModel(provider, models[idx].id);
-                    if (result.success) {
-                        await interaction.update({
-                            embeds: [await this.createModelEmbed(provider)],
-                            components: this.createModelButtons(provider)
-                        });
-                    } else {
-                        await interaction.reply({
-                            content: `❌ ${result.error}`,
-                            ephemeral: true
-                        });
-                    }
-                } else {
-                    await interaction.reply({
-                        content: '❌ Nomor tidak valid',
-                        ephemeral: true
+                    await interaction.update({
+                        embeds: [await this.createModelEmbed(provider)],
+                        components: this.createModelButtons(provider)
                     });
+                } else {
+                    await interaction.reply({ content: '❌ Nomor tidak valid', ephemeral: true });
                 }
             }
             
         } catch (e) {
             console.error('Modal Submit Error:', e);
-            await interaction.reply({
-                content: `❌ Error: ${e.message}`,
-                ephemeral: true
-            });
+            await interaction.reply({ content: `❌ Error: ${e.message}`, ephemeral: true }).catch(() => {});
         }
     }
 
-    // ==================== QUICK COMMANDS (Backup) ====================
+    // ==================== QUICK COMMANDS ====================
     
     async quickAddApi(msg, args) {
         if (!this.isAdmin(msg.author.id)) return msg.reply('❌ Admin only');
-        msg.reply('💡 Gunakan `.manage` untuk menambah API key dengan aman via modal');
+        msg.reply('💡 Gunakan `.manage` untuk menambah API key dengan aman via UI');
     }
     
     async quickListApi(msg) {
@@ -928,7 +860,7 @@ class DynamicManager {
     
     async quickSyncModels(msg, provider) {
         if (!this.isAdmin(msg.author.id)) return msg.reply('❌ Admin only');
-        if (!provider) return msg.reply('❓ `.syncmodels <provider>`\nProviders: openrouter, groq, gemini');
+        if (!provider) return msg.reply('❓ `.syncmodels <provider>`\nProviders: openrouter, groq, gemini, pollinations, huggingface');
         
         const status = await msg.reply('🔄 Syncing...');
         const result = await this.syncModels(provider.toLowerCase());
