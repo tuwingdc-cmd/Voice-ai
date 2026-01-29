@@ -46,70 +46,109 @@ class DynamicManager {
     // ==================== PROVIDER CONFIGS ====================
     
     getProviders() {
-        return {
-            gemini: {
-                name: 'Google Gemini',
-                icon: '🔵',
-                keyPrefix: 'AIza',
-                syncable: true,
-                defaultModels: [
-                    { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
-                    { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
-                    { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
-                    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' }
-                ]
-            },
-            groq: {
-                name: 'Groq',
-                icon: '🟠',
-                keyPrefix: 'gsk_',
-                syncable: true,
-                defaultModels: [
-                    { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B' },
-                    { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B' },
-                    { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B' }
-                ]
-            },
-            openrouter: {
-                name: 'OpenRouter',
-                icon: '🟣',
-                keyPrefix: 'sk-or-',
-                syncable: true,
-                syncUrl: 'https://openrouter.ai/api/v1/models'
-            },
-            huggingface: {
-                name: 'HuggingFace',
-                icon: '🟡',
-                keyPrefix: 'hf_',
-                syncable: false,
-                defaultModels: [
-                    { id: 'meta-llama/Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B' },
-                    { id: 'mistralai/Mixtral-8x7B-Instruct-v0.1', name: 'Mixtral 8x7B' }
-                ]
-            },
-            elevenlabs: {
-                name: 'ElevenLabs',
-                icon: '🎙️',
-                keyPrefix: '',
-                syncable: false,
-                defaultModels: []
-            },
-            tavily: {
-                name: 'Tavily Search',
-                icon: '🔍',
-                keyPrefix: 'tvly-',
-                syncable: false,
-                defaultModels: []
-            },
-            serper: {
-                name: 'Serper Search',
-                icon: '🔎',
-                keyPrefix: '',
-                syncable: false,
-                defaultModels: []
-            }
-        };
-    }
+    return {
+        gemini: {
+            name: 'Google Gemini',
+            icon: '🔵',
+            keyPrefix: 'AIza',
+            syncable: true,
+            defaultModels: [
+                { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
+                { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' },
+                { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
+                { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite' },
+                { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
+                { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' }
+            ]
+        },
+        groq: {
+            name: 'Groq',
+            icon: '🟠',
+            keyPrefix: 'gsk_',
+            syncable: true,
+            defaultModels: [
+                { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B' },
+                { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B' },
+                { id: 'llama-3.1-70b-versatile', name: 'Llama 3.1 70B' },
+                { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B' },
+                { id: 'gemma2-9b-it', name: 'Gemma 2 9B' }
+            ]
+        },
+        openrouter: {
+            name: 'OpenRouter',
+            icon: '🟣',
+            keyPrefix: 'sk-or-',
+            syncable: true,
+            syncUrl: 'https://openrouter.ai/api/v1/models'
+        },
+        pollinations: {
+            name: 'Pollinations',
+            icon: '🌸',
+            keyPrefix: '',
+            syncable: true,
+            defaultModels: [
+                { id: 'openai', name: 'OpenAI GPT' },
+                { id: 'openai-fast', name: 'OpenAI Fast' },
+                { id: 'openai-large', name: 'OpenAI Large' },
+                { id: 'openai-reasoning', name: 'OpenAI Reasoning' },
+                { id: 'claude', name: 'Claude' },
+                { id: 'claude-fast', name: 'Claude Fast' },
+                { id: 'claude-large', name: 'Claude Large' },
+                { id: 'claude-haiku', name: 'Claude Haiku' },
+                { id: 'claude-sonnet', name: 'Claude Sonnet' },
+                { id: 'gemini', name: 'Gemini' },
+                { id: 'gemini-fast', name: 'Gemini Fast' },
+                { id: 'gemini-large', name: 'Gemini Large' },
+                { id: 'gemini-thinking', name: 'Gemini Thinking' },
+                { id: 'deepseek', name: 'DeepSeek' },
+                { id: 'deepseek-r1', name: 'DeepSeek R1' },
+                { id: 'deepseek-reasoning', name: 'DeepSeek Reasoning' },
+                { id: 'qwen', name: 'Qwen' },
+                { id: 'qwen-coder', name: 'Qwen Coder' },
+                { id: 'llama', name: 'Llama' },
+                { id: 'mistral', name: 'Mistral' },
+                { id: 'mistral-large', name: 'Mistral Large' },
+                { id: 'grok', name: 'Grok' },
+                { id: 'kimi', name: 'Kimi' },
+                { id: 'searchgpt', name: 'SearchGPT' },
+                { id: 'evil', name: 'Evil Mode' }
+            ]
+        },
+        huggingface: {
+            name: 'HuggingFace',
+            icon: '🟡',
+            keyPrefix: 'hf_',
+            syncable: false,
+            defaultModels: [
+                { id: 'meta-llama/Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B' },
+                { id: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B' },
+                { id: 'mistralai/Mixtral-8x7B-Instruct-v0.1', name: 'Mixtral 8x7B' },
+                { id: 'Qwen/Qwen2.5-72B-Instruct', name: 'Qwen 2.5 72B' }
+            ]
+        },
+        elevenlabs: {
+            name: 'ElevenLabs',
+            icon: '🎙️',
+            keyPrefix: '',
+            syncable: false,
+            defaultModels: []
+        },
+        tavily: {
+            name: 'Tavily Search',
+            icon: '🔍',
+            keyPrefix: 'tvly-',
+            syncable: false,
+            defaultModels: []
+        },
+        serper: {
+            name: 'Serper Search',
+            icon: '🔎',
+            keyPrefix: '',
+            syncable: false,
+            defaultModels: []
+        }
+    };
+}
 
     // ==================== HELPERS ====================
     
@@ -274,35 +313,47 @@ class DynamicManager {
     }
     
     async syncModels(provider) {
-        const providers = this.getProviders();
-        const config = providers[provider];
-        
-        if (!config) return { success: false, error: 'Provider tidak valid' };
-        
-        // OpenRouter - fetch from API
-        if (provider === 'openrouter') {
-            return this.syncOpenRouterModels();
-        }
-        
-        // Groq - fetch from API
-        if (provider === 'groq') {
-            return this.syncGroqModels();
-        }
-        
-        // Gemini - use default models
-        if (provider === 'gemini') {
-            await this.redisSet(`models:${provider}`, config.defaultModels);
-            return { success: true, count: config.defaultModels.length };
-        }
-        
-        // Others - use default
-        if (config.defaultModels?.length > 0) {
-            await this.redisSet(`models:${provider}`, config.defaultModels);
-            return { success: true, count: config.defaultModels.length };
-        }
-        
-        return { success: false, error: 'Provider tidak mendukung sync' };
+    const providers = this.getProviders();
+    const config = providers[provider];
+    
+    if (!config) return { success: false, error: 'Provider tidak valid' };
+    
+    // OpenRouter - fetch from API
+    if (provider === 'openrouter') {
+        return this.syncOpenRouterModels();
     }
+    
+    // Groq - use default models
+    if (provider === 'groq') {
+        return this.syncGroqModels();
+    }
+    
+    // Pollinations - use default models
+    if (provider === 'pollinations') {
+        await this.redisSet(`models:${provider}`, config.defaultModels);
+        return { success: true, count: config.defaultModels.length };
+    }
+    
+    // Gemini - use default models
+    if (provider === 'gemini') {
+        await this.redisSet(`models:${provider}`, config.defaultModels);
+        return { success: true, count: config.defaultModels.length };
+    }
+    
+    // HuggingFace - use default models
+    if (provider === 'huggingface') {
+        await this.redisSet(`models:${provider}`, config.defaultModels);
+        return { success: true, count: config.defaultModels.length };
+    }
+    
+    // Others - use default if available
+    if (config.defaultModels?.length > 0) {
+        await this.redisSet(`models:${provider}`, config.defaultModels);
+        return { success: true, count: config.defaultModels.length };
+    }
+    
+    return { success: false, error: 'Provider tidak mendukung sync' };
+}
     
     async syncOpenRouterModels() {
         return new Promise((resolve) => {
