@@ -327,7 +327,6 @@ function clearConversation(guildId, oderId) {
     conversations.delete(`${guildId}-${oderId}`);
 }
 
-// Cleanup old conversations
 setInterval(() => {
     const now = Date.now();
     for (const [key, conv] of conversations) {
@@ -585,7 +584,6 @@ async function callAI(guildId, oderId, userMessage, isVoiceMode = false) {
     } catch (error) {
         console.error(`AI Error (${aiProvider}):`, error.message);
 
-        // Auto-rotate if quota/rate limit
         if (error.message.includes('quota') || error.message.includes('limit') || error.message.includes('429')) {
             const rotated = await manager.rotateKey(aiProvider);
             if (rotated) {
@@ -598,7 +596,6 @@ async function callAI(guildId, oderId, userMessage, isVoiceMode = false) {
             }
         }
 
-        // Fallback to Pollinations
         if (aiProvider !== 'pollinations') {
             console.log('Fallback to Pollinations...');
             try {
@@ -810,63 +807,13 @@ function createModeButtons(guildId) {
 // ==================== INTERACTION HANDLER ====================
 
 client.on(Events.InteractionCreate, async (interaction) => {
-    // 1) Dynamic Manager (embed UI, modal, dll)
+    // Handle Dynamic Manager (termasuk Modal Submit)
     if (interaction.customId?.startsWith('dm_')) {
         return manager.handleInteraction(interaction);
     }
 
-    // 2) Settings bawaan bot (select menu & button)
+    // Skip jika bukan select menu atau button
     if (!interaction.isStringSelectMenu() && !interaction.isButton()) return;
-
-    if (!isAdmin(interaction.user.id)) {
-        return interaction.reply({ content: '❌ Admin only', ephemeral: true });
-    }
-
-    const guildId = interaction.guild.id;
-
-    try {
-        if (interaction.customId === 'sel_ai') {
-            updateSettings(guildId, 'aiProvider', interaction.values[0]);
-            const p = AI_PROVIDERS[interaction.values[0]];
-            if (p?.models[0]) updateSettings(guildId, 'aiModel', p.models[0].id);
-
-        } else if (interaction.customId === 'sel_model') {
-            updateSettings(guildId, 'aiModel', interaction.values[0]);
-
-        } else if (interaction.customId === 'sel_voice') {
-            updateSettings(guildId, 'ttsVoice', interaction.values[0]);
-
-        } else if (interaction.customId === 'search_toggle') {
-            const s = getSettings(guildId);
-            updateSettings(guildId, 'searchEnabled', !s.searchEnabled);
-
-        } else if (interaction.customId === 'grounding_toggle') {
-            const s = getSettings(guildId);
-            updateSettings(guildId, 'geminiGrounding', !s.geminiGrounding);
-        }
-
-        const comps = [
-            createProviderMenu(guildId),
-            createModelMenu(guildId),
-            createVoiceMenu(guildId),
-            createModeButtons(guildId)
-        ].filter(Boolean);
-
-        await interaction.update({
-            embeds: [createSettingsEmbed(guildId)],
-            components: comps
-        });
-
-    } catch (e) {
-        interaction.reply({ content: `❌ ${e.message}`, ephemeral: true }).catch(() => {});
-    }
-});
-    if (!interaction.isStringSelectMenu() && !interaction.isButton()) return;
-
-    // Handle Dynamic Manager
-    if (interaction.customId.startsWith('dm_')) {
-        return manager.handleInteraction(interaction);
-    }
 
     if (!isAdmin(interaction.user.id)) {
         return interaction.reply({ content: '❌ Admin only', ephemeral: true });
@@ -979,7 +926,7 @@ client.on(Events.MessageCreate, async (msg) => {
                 let statusText = '**📊 Bot Status v2.15.0**\n\n';
                 statusText += `**API Pool:**\n`;
                 for (const [p, s] of Object.entries(poolStatus)) {
-                    if (s.total > 0) statusText += `• ${p}: ${s.total} keys (${s.active} active)\n`;
+                    if (s.keys > 0) statusText += `• ${p}: ${s.keys} keys (${s.active} active)\n`;
                 }
                 statusText += `\n**Redis:** ${manager.connected ? '🟢 Connected' : '🔴 Disconnected'}`;
                 statusText += `\n**Uptime:** ${Math.floor((Date.now() - startTime) / 60000)} min`;
@@ -1048,7 +995,6 @@ async function handleAI(msg, query) {
             else await msg.channel.send(parts[i]);
         }
 
-        // Play TTS if in voice
         if (inVoice) {
             try {
                 const s = getSettings(msg.guild.id);
