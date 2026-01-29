@@ -1,6 +1,5 @@
 FROM node:20-bullseye-slim
 
-# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
@@ -9,16 +8,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     build-essential \
     pkg-config \
-    git \
     ffmpeg \
-    opus-tools \
     libopus0 \
     libopus-dev \
     libsodium23 \
     libsodium-dev \
-    libtool \
-    autoconf \
-    automake \
     curl \
     ca-certificates \
     && pip3 install --no-cache-dir edge-tts \
@@ -27,27 +21,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy package files
 COPY package*.json ./
 
-# Install Node dependencies
-RUN npm install --omit=dev --legacy-peer-deps \
+RUN npm install --omit=dev \
     && npm cache clean --force
 
-# Copy application code
 COPY . .
 
-# Create necessary directories
 RUN mkdir -p temp data logs \
     && chmod 755 temp data logs
 
-# Environment variables
 ENV NODE_ENV=production \
     NODE_OPTIONS="--max-old-space-size=512" \
-    FFMPEG_PATH=/usr/bin/ffmpeg \
-    OPUS_LOCATION=/usr/lib/x86_64-linux-gnu/libopus.so.0
+    FFMPEG_PATH=/usr/bin/ffmpeg
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
     CMD curl -f http://localhost:3000/ || exit 1
 
