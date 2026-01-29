@@ -241,7 +241,11 @@ function shouldSearch(message) {
 
 function shouldSearch(message) {
     const lower = message.toLowerCase();
-    return SEARCH_TRIGGERS.some(trigger => lower.includes(trigger));
+    
+    // Flatten all triggers into single array
+    const allTriggers = Object.values(SEARCH_TRIGGERS).flat();
+    
+    return allTriggers.some(trigger => lower.includes(trigger));
 }
 
 async function searchSerper(query) {
