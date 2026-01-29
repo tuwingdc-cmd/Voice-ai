@@ -1,6 +1,7 @@
 // ============================================================
-//         DYNAMIC API & MODEL MANAGER v2.0
+//         DYNAMIC API & MODEL MANAGER v2.1
 //         Full Embed UI + Multi Provider Sync
+//         Fixed: All issues from analysis
 // ============================================================
 
 const Redis = require('ioredis');
@@ -23,22 +24,38 @@ class DynamicManager {
         this.connected = false;
         
         if (redisUrl) {
-            this.redis = new Redis(redisUrl, {
-                maxRetriesPerRequest: 3,
-                lazyConnect: true
-            });
-            
-            this.redis.on('connect', () => {
-                console.log('✅ Redis connected');
-                this.connected = true;
-            });
-            
-            this.redis.on('error', (err) => {
-                console.error('❌ Redis error:', err.message);
+            try {
+                this.redis = new Redis(redisUrl, {
+                    maxRetriesPerRequest: 3,
+                    lazyConnect: true,
+                    retryDelayOnFailover: 100
+                });
+                
+                this.redis.on('connect', () => {
+                    console.log('✅ Redis connected');
+                    this.connected = true;
+                });
+                
+                this.redis.on('error', (err) => {
+                    console.error('❌ Redis error:', err.message);
+                    this.connected = false;
+                });
+                
+                this.redis.on('close', () => {
+                    console.warn('⚠️ Redis connection closed');
+                    this.connected = false;
+                });
+                
+                this.redis.connect().catch((err) => {
+                    console.warn('⚠️ Redis connection failed, using ENV fallback:', err.message);
+                    this.connected = false;
+                });
+            } catch (err) {
+                console.warn('⚠️ Redis initialization failed:', err.message);
                 this.connected = false;
-            });
-            
-            this.redis.connect().catch(() => {});
+            }
+        } else {
+            console.warn('⚠️ No REDIS_URL provided, using ENV fallback');
         }
     }
 
@@ -78,7 +95,13 @@ class DynamicManager {
                 icon: '🟣',
                 keyPrefix: 'sk-or-',
                 syncable: true,
-                defaultModels: []
+                defaultModels: [
+                    { id: 'arcee-ai/trinity-large-preview:free', name: 'Trinity Large Preview (free)' },
+                    { id: 'upstage/solar-pro-3:free', name: 'Solar Pro 3 (free)' },
+                    { id: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (free)' },
+                    { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B (free)' },
+                    { id: 'deepseek/deepseek-r1-0528:free', name: 'DeepSeek R1 (free)' }
+                ]
             },
             pollinations: {
                 name: 'Pollinations',
@@ -88,20 +111,17 @@ class DynamicManager {
                 defaultModels: [
                     { id: 'openai', name: 'OpenAI GPT' },
                     { id: 'openai-large', name: 'OpenAI Large' },
-                    { id: 'openai-reasoning', name: 'OpenAI Reasoning' },
                     { id: 'claude', name: 'Claude' },
-                    { id: 'claude-haiku', name: 'Claude Haiku' },
-                    { id: 'claude-sonnet', name: 'Claude Sonnet' },
+                    { id: 'claude-hybridspace', name: 'Claude Hybridspace' },
                     { id: 'gemini', name: 'Gemini' },
-                    { id: 'gemini-thinking', name: 'Gemini Thinking' },
                     { id: 'deepseek', name: 'DeepSeek' },
                     { id: 'deepseek-r1', name: 'DeepSeek R1' },
+                    { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner' },
                     { id: 'qwen', name: 'Qwen' },
                     { id: 'qwen-coder', name: 'Qwen Coder' },
                     { id: 'llama', name: 'Llama' },
                     { id: 'mistral', name: 'Mistral' },
-                    { id: 'grok', name: 'Grok' },
-                    { id: 'kimi', name: 'Kimi' },
+                    { id: 'mistral-large', name: 'Mistral Large' },
                     { id: 'searchgpt', name: 'SearchGPT' },
                     { id: 'evil', name: 'Evil Mode' }
                 ]
@@ -153,104 +173,152 @@ class DynamicManager {
     }
     
     async redisGet(key) {
-        if (!this.connected) return null;
+        if (!this.connected || !this.redis) return null;
         try {
             const data = await this.redis.get(key);
             return data ? JSON.parse(data) : null;
-        } catch (e) { return null; }
+        } catch (e) {
+            console.error('Redis GET error:', e.message);
+            return null;
+        }
     }
     
     async redisSet(key, value) {
-        if (!this.connected) return false;
+        if (!this.connected || !this.redis) return false;
         try {
             await this.redis.set(key, JSON.stringify(value));
             return true;
-        } catch (e) { return false; }
+        } catch (e) {
+            console.error('Redis SET error:', e.message);
+            return false;
+        }
     }
 
     // ==================== API KEY MANAGEMENT ====================
     
     async getApiKeys(provider) {
-        return await this.redisGet(`api:${provider}`) || [];
+        const keys = await this.redisGet(`api:${provider}`);
+        return Array.isArray(keys) ? keys : [];
     }
     
     async getActiveKey(provider, envFallback = null) {
-        const keys = await this.getApiKeys(provider);
-        const now = Date.now();
-        
-        for (const keyData of keys) {
-            if (keyData.status === 'active') return keyData.key;
-            if (keyData.status === 'cooldown' && keyData.cooldownUntil < now) {
-                keyData.status = 'active';
-                await this.redisSet(`api:${provider}`, keys);
-                return keyData.key;
+        try {
+            const keys = await this.getApiKeys(provider);
+            const now = Date.now();
+            
+            // Find active key
+            for (const keyData of keys) {
+                if (keyData.status === 'active') {
+                    return keyData.key;
+                }
+                // Check if cooldown expired
+                if (keyData.status === 'cooldown' && keyData.cooldownUntil && keyData.cooldownUntil < now) {
+                    keyData.status = 'active';
+                    await this.redisSet(`api:${provider}`, keys);
+                    return keyData.key;
+                }
             }
+            
+            // Find standby key
+            const standby = keys.find(k => k.status === 'standby');
+            if (standby) {
+                standby.status = 'active';
+                await this.redisSet(`api:${provider}`, keys);
+                return standby.key;
+            }
+            
+            // Fallback to ENV
+            return envFallback;
+        } catch (e) {
+            console.error('getActiveKey error:', e.message);
+            return envFallback;
         }
-        
-        const standby = keys.find(k => k.status === 'standby');
-        if (standby) {
-            standby.status = 'active';
-            await this.redisSet(`api:${provider}`, keys);
-            return standby.key;
-        }
-        
-        return envFallback;
     }
     
     async addApiKey(provider, key, label = '') {
-        const keys = await this.getApiKeys(provider);
-        
-        if (keys.some(k => k.key === key)) {
-            return { success: false, error: 'Key sudah ada' };
+        try {
+            const keys = await this.getApiKeys(provider);
+            
+            if (keys.some(k => k.key === key)) {
+                return { success: false, error: 'Key sudah ada' };
+            }
+            
+            keys.push({
+                key,
+                label: label || `Key ${keys.length + 1}`,
+                status: keys.length === 0 ? 'active' : 'standby',
+                addedAt: Date.now()
+            });
+            
+            const saved = await this.redisSet(`api:${provider}`, keys);
+            if (!saved) {
+                return { success: false, error: 'Failed to save to Redis' };
+            }
+            
+            return { success: true, total: keys.length };
+        } catch (e) {
+            return { success: false, error: e.message };
         }
-        
-        keys.push({
-            key,
-            label: label || `Key ${keys.length + 1}`,
-            status: keys.length === 0 ? 'active' : 'standby',
-            addedAt: Date.now()
-        });
-        
-        await this.redisSet(`api:${provider}`, keys);
-        return { success: true, total: keys.length };
     }
     
     async removeApiKey(provider, index) {
-        const keys = await this.getApiKeys(provider);
-        if (index < 0 || index >= keys.length) {
-            return { success: false, error: 'Invalid index' };
+        try {
+            const keys = await this.getApiKeys(provider);
+            
+            if (index < 0 || index >= keys.length) {
+                return { success: false, error: 'Invalid index' };
+            }
+            
+            keys.splice(index, 1);
+            
+            // Ensure at least one is active
+            if (keys.length > 0 && !keys.some(k => k.status === 'active')) {
+                keys[0].status = 'active';
+            }
+            
+            await this.redisSet(`api:${provider}`, keys);
+            return { success: true, total: keys.length };
+        } catch (e) {
+            return { success: false, error: e.message };
         }
-        
-        keys.splice(index, 1);
-        
-        if (keys.length > 0 && !keys.some(k => k.status === 'active')) {
-            keys[0].status = 'active';
-        }
-        
-        await this.redisSet(`api:${provider}`, keys);
-        return { success: true, total: keys.length };
     }
     
     async rotateKey(provider, cooldownMs = 60000) {
-        const keys = await this.getApiKeys(provider);
-        if (keys.length < 2) return false;
-        
-        const activeIdx = keys.findIndex(k => k.status === 'active');
-        if (activeIdx === -1) return false;
-        
-        keys[activeIdx].status = 'cooldown';
-        keys[activeIdx].cooldownUntil = Date.now() + cooldownMs;
-        
-        for (let i = 1; i < keys.length; i++) {
-            const nextIdx = (activeIdx + i) % keys.length;
-            if (keys[nextIdx].status === 'standby') {
-                keys[nextIdx].status = 'active';
-                await this.redisSet(`api:${provider}`, keys);
-                console.log(`🔄 Rotated ${provider} to key ${nextIdx + 1}`);
-                return true;
+        try {
+            const keys = await this.getApiKeys(provider);
+            
+            if (!keys || keys.length < 2) {
+                console.warn(`⚠️ Not enough keys to rotate for ${provider}`);
+                return false;
             }
+            
+            const activeIdx = keys.findIndex(k => k.status === 'active');
+            if (activeIdx === -1) {
+                console.warn(`⚠️ No active key found for ${provider}`);
+                return false;
+            }
+            
+            // Set current key to cooldown
+            keys[activeIdx].status = 'cooldown';
+            keys[activeIdx].cooldownUntil = Date.now() + cooldownMs;
+            
+            // Find next standby key
+            for (let i = 1; i < keys.length; i++) {
+                const nextIdx = (activeIdx + i) % keys.length;
+                if (keys[nextIdx].status === 'standby') {
+                    keys[nextIdx].status = 'active';
+                    await this.redisSet(`api:${provider}`, keys);
+                    console.log(`✅ Rotated ${provider} from key ${activeIdx + 1} to key ${nextIdx + 1}`);
+                    return true;
+                }
+            }
+            
+            console.warn(`⚠️ No standby key available for ${provider}`);
+            return false;
+        } catch (e) {
+            console.error('rotateKey error:', e.message);
+            return false;
         }
-        return false;
     }
     
     async getPoolStatus() {
@@ -258,13 +326,17 @@ class DynamicManager {
         const status = {};
         
         for (const provider of providers) {
-            const keys = await this.getApiKeys(provider);
-            const models = await this.getModels(provider);
-            status[provider] = {
-                keys: keys.length,
-                active: keys.filter(k => k.status === 'active').length,
-                models: models.length
-            };
+            try {
+                const keys = await this.getApiKeys(provider);
+                const models = await this.getModels(provider);
+                status[provider] = {
+                    keys: keys.length,
+                    active: keys.filter(k => k.status === 'active').length,
+                    models: models.length
+                };
+            } catch (e) {
+                status[provider] = { keys: 0, active: 0, models: 0 };
+            }
         }
         return status;
     }
@@ -272,34 +344,50 @@ class DynamicManager {
     // ==================== MODEL MANAGEMENT ====================
     
     async getModels(provider) {
-        const models = await this.redisGet(`models:${provider}`);
-        if (models && models.length > 0) return models;
-        
-        const providerConfig = this.getProviders()[provider];
-        return providerConfig?.defaultModels || [];
+        try {
+            const models = await this.redisGet(`models:${provider}`);
+            if (models && Array.isArray(models) && models.length > 0) {
+                return models;
+            }
+            
+            // Return default models
+            const providerConfig = this.getProviders()[provider];
+            return providerConfig?.defaultModels || [];
+        } catch (e) {
+            const providerConfig = this.getProviders()[provider];
+            return providerConfig?.defaultModels || [];
+        }
     }
     
     async addModel(provider, id, name) {
-        const models = await this.redisGet(`models:${provider}`) || [];
-        
-        if (models.some(m => m.id === id)) {
-            return { success: false, error: 'Model sudah ada' };
+        try {
+            const models = await this.redisGet(`models:${provider}`) || [];
+            
+            if (models.some(m => m.id === id)) {
+                return { success: false, error: 'Model sudah ada' };
+            }
+            
+            models.push({ id, name, addedAt: Date.now() });
+            await this.redisSet(`models:${provider}`, models);
+            return { success: true, total: models.length };
+        } catch (e) {
+            return { success: false, error: e.message };
         }
-        
-        models.push({ id, name, addedAt: Date.now() });
-        await this.redisSet(`models:${provider}`, models);
-        return { success: true, total: models.length };
     }
     
     async removeModel(provider, id) {
-        const models = await this.redisGet(`models:${provider}`) || [];
-        const idx = models.findIndex(m => m.id === id);
-        
-        if (idx === -1) return { success: false, error: 'Model tidak ditemukan' };
-        
-        models.splice(idx, 1);
-        await this.redisSet(`models:${provider}`, models);
-        return { success: true, total: models.length };
+        try {
+            const models = await this.redisGet(`models:${provider}`) || [];
+            const idx = models.findIndex(m => m.id === id);
+            
+            if (idx === -1) return { success: false, error: 'Model tidak ditemukan' };
+            
+            models.splice(idx, 1);
+            await this.redisSet(`models:${provider}`, models);
+            return { success: true, total: models.length };
+        } catch (e) {
+            return { success: false, error: e.message };
+        }
     }
     
     async syncModels(provider) {
@@ -308,10 +396,12 @@ class DynamicManager {
         
         if (!config) return { success: false, error: 'Provider tidak valid' };
         
+        // OpenRouter - fetch from API
         if (provider === 'openrouter') {
             return this.syncOpenRouterModels();
         }
         
+        // Others - use default models
         if (config.defaultModels?.length > 0) {
             await this.redisSet(`models:${provider}`, config.defaultModels);
             return { success: true, count: config.defaultModels.length };
@@ -322,19 +412,34 @@ class DynamicManager {
     
     async syncOpenRouterModels() {
         return new Promise((resolve) => {
-            https.get('https://openrouter.ai/api/v1/models', (res) => {
+            const req = https.get('https://openrouter.ai/api/v1/models', { timeout: 15000 }, (res) => {
                 let data = '';
                 res.on('data', c => data += c);
                 res.on('end', async () => {
                     try {
+                        if (res.statusCode !== 200) {
+                            resolve({ success: false, error: `HTTP ${res.statusCode}` });
+                            return;
+                        }
+                        
                         const json = JSON.parse(data);
+                        if (!json.data || !Array.isArray(json.data)) {
+                            resolve({ success: false, error: 'Invalid response format' });
+                            return;
+                        }
+                        
                         const models = json.data
-                            .filter(m => m.id.includes(':free'))
+                            .filter(m => m.id && m.id.includes(':free'))
                             .map(m => ({
                                 id: m.id,
                                 name: m.name || m.id.split('/').pop().replace(':free', ' (free)')
                             }))
                             .slice(0, 50);
+                        
+                        if (models.length === 0) {
+                            resolve({ success: false, error: 'No free models found' });
+                            return;
+                        }
                         
                         await this.redisSet('models:openrouter', models);
                         resolve({ success: true, count: models.length });
@@ -342,7 +447,13 @@ class DynamicManager {
                         resolve({ success: false, error: e.message });
                     }
                 });
-            }).on('error', (e) => resolve({ success: false, error: e.message }));
+            });
+            
+            req.on('error', (e) => resolve({ success: false, error: e.message }));
+            req.on('timeout', () => {
+                req.destroy();
+                resolve({ success: false, error: 'Timeout' });
+            });
         });
     }
 
@@ -370,9 +481,9 @@ class DynamicManager {
             .addFields(
                 { name: '🔑 API Keys', value: apiList || '*Belum ada*', inline: true },
                 { name: '🤖 Models', value: modelList || '*Belum ada*', inline: true },
-                { name: '📊 Status', value: `Redis: ${this.connected ? '🟢 Connected' : '🔴 Offline'}`, inline: false }
+                { name: '📊 Status', value: `Redis: ${this.connected ? '🟢 Connected' : '🔴 Offline (using ENV)'}`, inline: false }
             )
-            .setFooter({ text: 'v2.0 • Pilih menu di bawah' })
+            .setFooter({ text: 'v2.1 • Pilih menu di bawah' })
             .setTimestamp();
     }
     
@@ -527,7 +638,7 @@ class DynamicManager {
     createInputModal(type, provider, title) {
         const modal = new ModalBuilder()
             .setCustomId(`dm_modal_${type}_${provider}`)
-            .setTitle(title);
+            .setTitle(title.slice(0, 45));
         
         if (type === 'addkey') {
             modal.addComponents(
@@ -591,11 +702,16 @@ class DynamicManager {
             return msg.reply('❌ Hanya admin yang bisa mengakses');
         }
         
-        const status = await this.getPoolStatus();
-        await msg.reply({
-            embeds: [this.createMainEmbed(status)],
-            components: this.createMainMenu()
-        });
+        try {
+            const status = await this.getPoolStatus();
+            await msg.reply({
+                embeds: [this.createMainEmbed(status)],
+                components: this.createMainMenu()
+            });
+        } catch (e) {
+            console.error('showMainMenu error:', e);
+            await msg.reply('❌ Gagal menampilkan menu');
+        }
     }
     
     async handleInteraction(interaction) {
@@ -751,22 +867,38 @@ class DynamicManager {
         } catch (e) {
             console.error('DM Interaction Error:', e);
             const reply = { content: `❌ Error: ${e.message}`, ephemeral: true };
-            if (interaction.replied || interaction.deferred) {
-                await interaction.followUp(reply).catch(() => {});
-            } else {
-                await interaction.reply(reply).catch(() => {});
+            try {
+                if (interaction.replied || interaction.deferred) {
+                    await interaction.followUp(reply);
+                } else {
+                    await interaction.reply(reply);
+                }
+            } catch (err) {
+                console.error('Failed to send error reply:', err.message);
             }
         }
     }
     
     async handleModalSubmit(interaction) {
-        // Format: dm_modal_addkey_gemini atau dm_modal_addmodel_pollinations
-        const parts = interaction.customId.split('_');
-        // ['dm', 'modal', 'addkey', 'gemini'] atau ['dm', 'modal', 'addmodel', 'pollinations']
-        const type = parts[2]; // 'addkey', 'removekey', 'addmodel', 'removemodel'
-        const provider = parts.slice(3).join('_'); // Handle provider names with underscores
-        
         try {
+            // Validate format: dm_modal_addkey_gemini
+            if (!interaction.customId || !interaction.customId.startsWith('dm_modal_')) {
+                return interaction.reply({ content: '❌ Invalid modal ID', ephemeral: true });
+            }
+            
+            const parts = interaction.customId.split('_');
+            if (parts.length < 4) {
+                return interaction.reply({ content: '❌ Malformed modal customId', ephemeral: true });
+            }
+            
+            const type = parts[2]; // 'addkey', 'removekey', 'addmodel', 'removemodel'
+            const provider = parts.slice(3).join('_');
+            
+            // Validate provider
+            if (!this.getProviders()[provider]) {
+                return interaction.reply({ content: `❌ Provider ${provider} tidak valid`, ephemeral: true });
+            }
+            
             if (type === 'addkey') {
                 const apiKey = interaction.fields.getTextInputValue('api_key');
                 const label = interaction.fields.getTextInputValue('key_label') || '';
@@ -825,6 +957,9 @@ class DynamicManager {
                         embeds: [await this.createModelEmbed(provider)],
                         components: this.createModelButtons(provider)
                     });
+                    if (!result.success) {
+                        await interaction.followUp({ content: `❌ ${result.error}`, ephemeral: true });
+                    }
                 } else {
                     await interaction.reply({ content: '❌ Nomor tidak valid', ephemeral: true });
                 }
@@ -832,7 +967,11 @@ class DynamicManager {
             
         } catch (e) {
             console.error('Modal Submit Error:', e);
-            await interaction.reply({ content: `❌ Error: ${e.message}`, ephemeral: true }).catch(() => {});
+            try {
+                await interaction.reply({ content: `❌ Error: ${e.message}`, ephemeral: true });
+            } catch (err) {
+                console.error('Failed to reply modal error:', err.message);
+            }
         }
     }
 
