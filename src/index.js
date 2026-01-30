@@ -605,60 +605,139 @@ const SYSTEM_PROMPT = `Kamu adalah Aria, asisten AI premium yang elegan, cerdas,
 - Gunakan bahasa yang mudah dipahami saat didengar
 
 Ingat: Lebih baik jujur tidak tahu daripada memberikan informasi yang salah.`;
-// ==================== AI MODELS CONFIGURATION ====================
+// ==================== POLLINATIONS MODELS (SHARED) ====================
 
 const POLLINATIONS_MODELS = [
+    // OpenAI Models
     { id: 'openai', name: 'OpenAI GPT', version: 'GPT-5-nano' },
     { id: 'openai-fast', name: 'OpenAI Fast', version: 'GPT-5-fast' },
     { id: 'openai-large', name: 'OpenAI Large', version: 'GPT-5-large' },
+    { id: 'openai-reasoning', name: 'OpenAI Reasoning', version: 'o3-mini' },
+    { id: 'openai-audio', name: 'OpenAI Audio', version: 'GPT-4o-audio' },
+    // Claude Models
     { id: 'claude', name: 'Claude', version: 'Claude-3.5' },
     { id: 'claude-fast', name: 'Claude Fast', version: 'Claude-fast' },
+    { id: 'claude-large', name: 'Claude Large', version: 'Claude-large' },
+    { id: 'claude-haiku', name: 'Claude Haiku', version: 'Haiku-4.5' },
+    { id: 'claude-sonnet', name: 'Claude Sonnet', version: 'Sonnet-4.5' },
+    { id: 'claude-opus', name: 'Claude Opus', version: 'Opus-4.5' },
+    // Gemini Models
     { id: 'gemini', name: 'Gemini', version: 'Gemini-3-Flash' },
     { id: 'gemini-fast', name: 'Gemini Fast', version: 'Gemini-fast' },
+    { id: 'gemini-large', name: 'Gemini Large', version: 'Gemini-large' },
+    { id: 'gemini-search', name: 'Gemini Search', version: 'Gemini-search' },
+    { id: 'gemini-legacy', name: 'Gemini Legacy', version: 'Gemini-2.5' },
+    { id: 'gemini-thinking', name: 'Gemini Thinking', version: 'Thinking' },
+    // DeepSeek Models
     { id: 'deepseek', name: 'DeepSeek', version: 'V3' },
+    { id: 'deepseek-v3', name: 'DeepSeek V3', version: 'V3-latest' },
     { id: 'deepseek-r1', name: 'DeepSeek R1', version: 'R1' },
+    { id: 'deepseek-reasoning', name: 'DeepSeek Reasoning', version: 'R1-Reasoner' },
+    // Qwen Models
     { id: 'qwen', name: 'Qwen', version: 'Qwen3' },
+    { id: 'qwen-coder', name: 'Qwen Coder', version: 'Qwen3-Coder' },
+    // Llama Models
     { id: 'llama', name: 'Llama', version: 'Llama-3.3' },
-    { id: 'mistral', name: 'Mistral', version: 'Mistral-Small' }
+    { id: 'llamalight', name: 'Llama Light', version: 'Llama-70B' },
+    // Mistral Models
+    { id: 'mistral', name: 'Mistral', version: 'Mistral-Small' },
+    { id: 'mistral-small', name: 'Mistral Small', version: 'Mistral-3.2' },
+    { id: 'mistral-large', name: 'Mistral Large', version: 'Mistral-Large' },
+    // Perplexity Models
+    { id: 'perplexity-fast', name: 'Perplexity Fast', version: 'Sonar' },
+    { id: 'perplexity-reasoning', name: 'Perplexity Reasoning', version: 'Sonar-Pro' },
+    // Chinese AI Models
+    { id: 'kimi', name: 'Kimi', version: 'Kimi-K2.5' },
+    { id: 'kimi-large', name: 'Kimi Large', version: 'Kimi-large' },
+    { id: 'kimi-reasoning', name: 'Kimi Reasoning', version: 'Kimi-reasoning' },
+    { id: 'glm', name: 'GLM', version: 'GLM-4.7' },
+    { id: 'minimax', name: 'MiniMax', version: 'M2.1' },
+    // Grok Models
+    { id: 'grok', name: 'Grok', version: 'Grok-4' },
+    { id: 'grok-fast', name: 'Grok Fast', version: 'Grok-fast' },
+    // Amazon Nova
+    { id: 'nova-fast', name: 'Nova Fast', version: 'Amazon-Nova' },
+    // Microsoft Phi
+    { id: 'phi', name: 'Phi', version: 'Phi-4' },
+    // Search/Tool Models
+    { id: 'searchgpt', name: 'SearchGPT', version: 'v1' },
+    // Creative/Art Models
+    { id: 'midijourney', name: 'Midijourney', version: 'v1' },
+    { id: 'unity', name: 'Unity', version: 'v1' },
+    { id: 'rtist', name: 'Rtist', version: 'v1' },
+    // Special/Character Models
+    { id: 'evil', name: 'Evil Mode', version: 'Uncensored' },
+    { id: 'p1', name: 'P1', version: 'v1' },
+    { id: 'hormoz', name: 'Hormoz', version: 'v1' },
+    { id: 'sur', name: 'Sur', version: 'v1' },
+    { id: 'bidara', name: 'Bidara', version: 'v1' },
+    // Education/Utility Models
+    { id: 'chickytutor', name: 'ChickyTutor', version: 'Education' },
+    { id: 'nomnom', name: 'NomNom', version: 'Food' }
 ];
+
+// ==================== AI PROVIDERS ====================
 
 const AI_PROVIDERS = {
     gemini: {
-        name: 'Google Gemini',
-        models: [
-            { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro Preview', version: '3.0-pro' },
-            { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview', version: '3.0-flash' },
-            { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', version: '2.5-pro' },
-            { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', version: '2.5-flash' },
-            { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', version: '2.5-lite' },
-            { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', version: '2.0-flash' },
-            { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite', version: '2.0-lite' },
-            { id: 'gemini-flash-latest', name: 'Gemini Flash Latest', version: 'latest' },
-            { id: 'gemini-pro-latest', name: 'Gemini Pro Latest', version: 'latest' },
-            { id: 'gemma-3-27b-it', name: 'Gemma 3 27B', version: '27B' },
-            { id: 'gemma-3-12b-it', name: 'Gemma 3 12B', version: '12B' },
-            { id: 'deep-research-pro-preview-12-2025', name: 'Deep Research Pro', version: 'research' }
-        ]
-    },
+    name: 'Google Gemini',
+    models: [
+        { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro Preview', version: '3.0-pro' },
+        { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview', version: '3.0-flash' },
+        { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', version: '2.5-pro' },
+        { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', version: '2.5-flash' },
+        { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', version: '2.5-lite' },
+        { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', version: '2.0-flash' },
+        { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite', version: '2.0-lite' },
+        { id: 'gemini-flash-latest', name: 'Gemini Flash Latest', version: 'latest' },
+        { id: 'gemini-pro-latest', name: 'Gemini Pro Latest', version: 'latest' },
+        { id: 'gemma-3-27b-it', name: 'Gemma 3 27B', version: '27B' },
+        { id: 'gemma-3-12b-it', name: 'Gemma 3 12B', version: '12B' },
+        { id: 'gemma-3-4b-it', name: 'Gemma 3 4B', version: '4B' },
+        { id: 'deep-research-pro-preview-12-2025', name: 'Deep Research Pro', version: 'research' }
+    ]
+},
 
     groq: {
         name: 'Groq',
         models: [
             { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', version: 'v3.3' },
             { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B', version: 'v3.1' },
+            { id: 'openai/gpt-oss-120b', name: 'GPT OSS 120B', version: '120B' },
+            { id: 'openai/gpt-oss-20b', name: 'GPT OSS 20B', version: '20B' },
             { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', version: '8x7B' },
-            { id: 'gemma2-9b-it', name: 'Gemma 2 9B', version: '9B' }
+            { id: 'gemma2-9b-it', name: 'Gemma 2 9B', version: '9B' },
+            { id: 'meta-llama/llama-4-maverick-17b-128e-instruct', name: 'Llama 4 Maverick', version: '17B-128E' },
+            { id: 'meta-llama/llama-4-scout-17b-16e-instruct', name: 'Llama 4 Scout', version: '17B-16E' },
+            { id: 'moonshotai/kimi-k2-instruct-0905', name: 'Kimi K2', version: 'K2' },
+            { id: 'qwen/qwen-3-32b', name: 'Qwen 3 32B', version: '32B' },
+            { id: 'llama-3-groq-70b-tool-use', name: 'Llama 3 70B Tool', version: '70B-tool' },
+            { id: 'llama-3-groq-8b-tool-use', name: 'Llama 3 8B Tool', version: '8B-tool' }
         ]
     },
 
     openrouter: {
         name: 'OpenRouter',
         models: [
+            { id: 'arcee-ai/trinity-large-preview:free', name: 'Trinity Large Preview (free)', version: 'Large' },
+            { id: 'upstage/solar-pro-3:free', name: 'Solar Pro 3 (free)', version: 'Pro-3' },
+            { id: 'liquid/lfm-2.5-1.2b-thinking:free', name: 'LFM2.5-1.2B-Thinking (free)', version: '1.2B' },
+            { id: 'liquid/lfm-2.5-1.2b-instruct:free', name: 'LFM2.5-1.2B-Instruct (free)', version: '1.2B' },
+            { id: 'allenai/molmo-2-8b:free', name: 'Molmo2 8B (free)', version: '8B' },
+            { id: 'tngtech/deepseek-r1t-chimera:free', name: 'R1T Chimera (free)', version: 'R1T' },
+            { id: 'z-ai/glm-4.5-air:free', name: 'GLM 4.5 Air (free)', version: '4.5-Air' },
+            { id: 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free', name: 'Uncensored (free)', version: '24B' },
+            { id: 'google/gemma-3n-e2b-it:free', name: 'Gemma 3n 2B (free)', version: '3n-2B' },
+            { id: 'tngtech/deepseek-r1t2-chimera:free', name: 'DeepSeek R1T2 Chimera (free)', version: 'R1T2' },
+            { id: 'deepseek/deepseek-r1-0528:free', name: 'R1 0528 (free)', version: '0528' },
+            { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 3.1 24B (free)', version: '24B' },
             { id: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (free)', version: '2.0-flash' },
             { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B (free)', version: '70B' },
-            { id: 'deepseek/deepseek-r1-0528:free', name: 'DeepSeek R1 (free)', version: 'R1' },
+            { id: 'meta-llama/llama-3.1-405b-instruct:free', name: 'Llama 3.1 405B (free)', version: '405B' },
             { id: 'qwen/qwen3-coder:free', name: 'Qwen3 Coder (free)', version: 'Coder' },
-            { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 24B (free)', version: '24B' }
+            { id: 'moonshotai/kimi-k2:free', name: 'Kimi K2 (free)', version: 'K2' },
+            { id: 'openai/gpt-oss-120b:free', name: 'GPT OSS 120B (free)', version: '120B' },
+            { id: 'nousresearch/hermes-3-llama-3.1-405b:free', name: 'Hermes 3 405B (free)', version: '405B' }
         ]
     },
 
@@ -677,15 +756,15 @@ const AI_PROVIDERS = {
     huggingface: {
         name: 'HuggingFace',
         models: [
-            { id: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B', version: '70B' },
-            { id: 'meta-llama/Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B', version: '8B' },
-            { id: 'meta-llama/Llama-3.2-3B-Instruct', name: 'Llama 3.2 3B', version: '3B' },
-            { id: 'mistralai/Mistral-7B-Instruct-v0.3', name: 'Mistral 7B v0.3', version: '7B' },
+            { id: 'meta-llama/Meta-Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B', version: '3.1-8B' },
+            { id: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B', version: '3.3-70B' },
+            { id: 'HuggingFaceH4/zephyr-7b-beta', name: 'Zephyr 7B', version: '7B-beta' },
+            { id: 'mistralai/Mistral-7B-Instruct-v0.1', name: 'Mistral 7B', version: '7B-v0.1' },
             { id: 'mistralai/Mixtral-8x7B-Instruct-v0.1', name: 'Mixtral 8x7B', version: '8x7B' },
-            { id: 'microsoft/Phi-3-mini-4k-instruct', name: 'Phi 3 Mini', version: '3.8B' },
-            { id: 'google/gemma-2-9b-it', name: 'Gemma 2 9B', version: '9B' },
-            { id: 'Qwen/Qwen2.5-7B-Instruct', name: 'Qwen 2.5 7B', version: '7B' },
-            { id: 'HuggingFaceH4/zephyr-7b-beta', name: 'Zephyr 7B', version: '7B' }
+            { id: 'google/flan-t5-large', name: 'Flan T5 Large', version: 'T5-large' },
+            { id: 'EleutherAI/gpt-j-6B', name: 'GPT-J 6B', version: '6B' },
+            { id: 'Qwen/Qwen2.5-72B-Instruct', name: 'Qwen 2.5 72B', version: '2.5-72B' },
+            { id: 'google/gemma-2-27b-it', name: 'Gemma 2 27B', version: '2-27B' }
         ]
     }
 };
@@ -701,8 +780,8 @@ const TTS_VOICES = [
 // ==================== DEFAULT SETTINGS ====================
 
 const DEFAULT_SETTINGS = {
-    aiProvider: 'gemini',
-    aiModel: 'gemini-2.5-flash',
+    aiProvider: 'groq',
+    aiModel: 'llama-3.3-70b-versatile',
     ttsVoice: 'id-ID-GadisNeural',
     searchEnabled: true,
     searchProvider: 'auto',
@@ -880,14 +959,13 @@ async function callGemini(model, message, history, systemPrompt, useGrounding = 
             temperature: 0.7, 
             topP: 0.95, 
             topK: 40, 
-            maxOutputTokens: 2048,
-            thinkingMode: model.includes('pro') || model.includes('research') // Enable thinking for pro models
+            maxOutputTokens: 8192
         },
         safetySettings: [
-            { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-            { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-            { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' }
+            { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
         ]
     };
 
@@ -2310,134 +2388,72 @@ async function fetchURLClean(url, options = {}) {
         const response = await fetch(url, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
                 'Accept-Encoding': 'gzip, deflate, br',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache'
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1'
             },
             signal: controller.signal,
-            follow: 5 // Max redirects
+            redirect: 'follow',
+            follow: 5
         });
         
         clearTimeout(timeoutId);
+
+        // ... (sisanya tetap sama)
         
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         
         const contentType = response.headers.get('content-type') || '';
         
-        // Handle different content types
         if (contentType.includes('application/json')) {
             const json = await response.json();
-            return {
-                type: 'json',
-                content: JSON.stringify(json, null, 2).slice(0, maxLength)
-            };
+            return { type: 'json', content: JSON.stringify(json, null, 2).slice(0, maxLength) };
         }
         
         if (contentType.includes('text/plain')) {
             const text = await response.text();
-            return {
-                type: 'text',
-                content: text.slice(0, maxLength)
-            };
+            return { type: 'text', content: text.slice(0, maxLength) };
         }
         
-        // Default: HTML processing
         const html = await response.text();
         const $ = cheerio.load(html);
         
-        // Extract metadata
         const metadata = {
             title: $('title').text().trim() || $('meta[property="og:title"]').attr('content') || '',
-            description: $('meta[name="description"]').attr('content') || $('meta[property="og:description"]').attr('content') || '',
-            author: $('meta[name="author"]').attr('content') || $('meta[property="article:author"]').attr('content') || '',
-            date: $('meta[property="article:published_time"]').attr('content') || $('time').first().attr('datetime') || ''
+            description: $('meta[name="description"]').attr('content') || '',
+            author: $('meta[name="author"]').attr('content') || ''
         };
         
-        // Remove unwanted elements
-        const removeSelectors = [
-            'script', 'style', 'noscript', 'iframe', 'svg', 'canvas',
-            'nav', 'header', 'footer', 'aside',
-            '.ad', '.ads', '.advertisement', '.banner', '.promo',
-            '.sidebar', '.widget', '.related', '.recommended',
-            '.comments', '.comment-section', '.disqus',
-            '.share', '.social-share', '.social-buttons',
-            '.popup', '.modal', '.overlay', '.cookie',
-            '.newsletter', '.subscribe', '.signup',
-            '#ad', '#ads', '#advertisement', '#sidebar',
-            '[class*="advertisement"]', '[class*="sponsor"]',
-            '[id*="google_ads"]', '[id*="taboola"]', '[id*="outbrain"]'
-        ];
+        $('script, style, noscript, iframe, svg, nav, header, footer, aside, .ad, .ads, .sidebar, .comments, .share, #ad, #ads').remove();
         
-        removeSelectors.forEach(sel => $(sel).remove());
-        
-        // Try to find main content
         let mainContent = '';
+        const selectors = ['article', 'main', '.post-content', '.entry-content', '.article-body', '#content', '.content'];
         
-        const contentSelectors = [
-            'article',
-            '[role="main"]',
-            'main',
-            '.post-content',
-            '.entry-content',
-            '.article-content',
-            '.article-body',
-            '.content-body',
-            '.story-body',
-            '#content',
-            '.content',
-            '.post',
-            '.article'
-        ];
-        
-        for (const selector of contentSelectors) {
-            const element = $(selector).first();
-            if (element.length && element.text().trim().length > 200) {
-                mainContent = element.text();
+        for (const sel of selectors) {
+            const el = $(sel).first();
+            if (el.length && el.text().trim().length > 200) {
+                mainContent = el.text();
                 break;
             }
         }
         
-        // Fallback to body
-        if (!mainContent || mainContent.length < 200) {
-            mainContent = $('body').text();
-        }
+        if (!mainContent || mainContent.length < 200) mainContent = $('body').text();
         
-        // Clean whitespace
-        mainContent = mainContent
-            .replace(/\s+/g, ' ')
-            .replace(/\n\s*\n\s*\n/g, '\n\n')
-            .trim();
+        mainContent = mainContent.replace(/\s+/g, ' ').replace(/\n\s*\n/g, '\n\n').trim();
         
-        // Build output with metadata
-        let output = '';
-        
-        if (metadata.title) {
-            output += `📰 **${metadata.title}**\n\n`;
-        }
-        
-        if (metadata.author || metadata.date) {
-            const meta = [];
-            if (metadata.author) meta.push(`Author: ${metadata.author}`);
-            if (metadata.date) meta.push(`Date: ${new Date(metadata.date).toLocaleDateString('id-ID')}`);
-            output += `*${meta.join(' | ')}*\n\n`;
-        }
-        
+        let output = metadata.title ? `📰 **${metadata.title}**\n\n` : '';
         output += mainContent;
         
-        return {
-            type: 'html',
-            title: metadata.title,
-            content: output.slice(0, maxLength)
-        };
+        return { type: 'html', title: metadata.title, content: output.slice(0, maxLength) };
         
     } catch (error) {
-        if (error.name === 'AbortError') {
-            throw new Error('Timeout: Halaman terlalu lama merespons');
-        }
+        if (error.name === 'AbortError') throw new Error('Timeout');
         throw error;
     }
 }
@@ -3166,6 +3182,3 @@ client.login(CONFIG.token).then(() => {
     if (err.message.includes('DISALLOWED_INTENTS')) console.error('Enable MESSAGE CONTENT INTENT di Developer Portal!');
     process.exit(1);
 });
-
-    
-
