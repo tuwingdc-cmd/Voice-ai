@@ -95,7 +95,7 @@ const CONFIG = {
         apiKey: process.env.ELEVENLABS_API_KEY,
         modelId: 'eleven_multilingual_v2',
         defaultVoice: 'gmnazjXOFoOcWA59sd5m',
-        adminOnly: true  // Hanya admin yang pakai ElevenLabs
+        adminOnly: true
     },
     // Voice AI Settings
         voiceAI: {
@@ -922,7 +922,14 @@ function updateSettings(guildId, key, value) {
 }
 
 function isAdmin(userId) {
-    return CONFIG.adminIds.includes(userId);
+    // Convert to string untuk memastikan comparison benar
+    const userIdStr = String(userId);
+    const isAdminUser = CONFIG.adminIds.includes(userIdStr);
+    
+    // Debug log (hapus setelah fix)
+    // console.log(`isAdmin check: ${userIdStr} in [${CONFIG.adminIds}] = ${isAdminUser}`);
+    
+    return isAdminUser;
 }
 
 // ==================== CONVERSATION MEMORY ====================
@@ -1032,40 +1039,41 @@ async function generateTTS(text, voice, userId = null) {
     }
 
     const apiKey = CONFIG.elevenlabs?.apiKey;
-    const userIsAdmin = userId ? isAdmin(userId) : false;
+    const userIsAdmin = userId ? isAdmin(String(userId)) : false;
+    const hasValidKey = apiKey && apiKey !== 'xxx' && apiKey.length > 10;
     
-    // ElevenLabs hanya untuk admin + jika ada API key
-    const useElevenlabs = userIsAdmin && apiKey && apiKey !== 'xxx' && apiKey.length > 10;
+    // Debug log
+    console.log(`🔊 TTS: userId=${userId}, isAdmin=${userIsAdmin}, hasKey=${hasValidKey}`);
     
-    if (useElevenlabs) {
+    // ElevenLabs untuk admin + jika ada API key valid
+    if (userIsAdmin && hasValidKey) {
         try {
-            // Pastikan voice adalah ElevenLabs voice ID
             const elevenVoice = isElevenlabsVoice(voice) ? voice : CONFIG.elevenlabs.defaultVoice;
             await generateElevenLabsTTS(safeText, elevenVoice, outputPath);
-            console.log(`🔊 ElevenLabs (Admin) | Voice: ${elevenVoice}`);
+            console.log(`✅ ElevenLabs TTS (Admin) | Voice: ${elevenVoice}`);
             return outputPath;
         } catch (error) {
             console.error('❌ ElevenLabs error:', error.message);
             console.log('⚠️ Falling back to edge-tts...');
         }
+    } else {
+        console.log(`ℹ️ Using Edge-TTS: admin=${userIsAdmin}, key=${hasValidKey}`);
     }
     
     // Edge-TTS untuk user biasa atau fallback
     const edgeVoice = isEdgeTTSVoice(voice) ? voice : 'id-ID-GadisNeural';
     await generateEdgeTTS(safeText, edgeVoice, outputPath);
-    console.log(`🔊 Edge-TTS${userIsAdmin ? ' (Fallback)' : ''} | Voice: ${edgeVoice}`);
+    console.log(`✅ Edge-TTS | Voice: ${edgeVoice}`);
     
     return outputPath;
 }
 
-// Check apakah voice ID adalah ElevenLabs
 function isElevenlabsVoice(voiceId) {
-    return ELEVENLABS_VOICES.some(v => v.id === voiceId);
+    return voiceId && !voiceId.includes('Neural') && voiceId.length > 15;
 }
 
-// Check apakah voice ID adalah Edge-TTS
 function isEdgeTTSVoice(voiceId) {
-    return voiceId.includes('Neural') || EDGE_TTS_VOICES.some(v => v.id === voiceId);
+    return voiceId && voiceId.includes('Neural');
 }
 
 async function generateElevenLabsTTS(text, voiceId, outputPath) {
@@ -2087,8 +2095,13 @@ async function handleAI(msg, query) {
         // TTS untuk voice channel
         if (inVoice) {
             try {
-                const s = getSettings(msg.guild.id);
-                const ttsFile = await generateTTS(response.text, s.ttsVoice);
+                        const s = getSettings(guildId);
+        // Pilih voice berdasarkan admin status
+        let voice = s.ttsVoice;
+        if (isAdmin(userId) && s.ttsVoiceElevenlabs) {
+            voice = s.ttsVoiceElevenlabs;
+        }
+        const ttsFile = await generateTTS(response.text, voice, userId);
                 if (ttsFile) {
                     await playTTSInVoice(msg.guild.id, ttsFile);
                 }
@@ -2112,7 +2125,12 @@ async function handleSpeak(msg, text) {
     const status = await msg.reply('🔊 Generating...');
 
     try {
-                const s = getSettings(msg.guild.id);
+               const s = getSettings(msg.guild.id);
+        // Pilih voice berdasarkan admin status
+        let voice = s.ttsVoice;
+        if (isAdmin(msg.author.id) && s.ttsVoiceElevenlabs) {
+            voice = s.ttsVoiceElevenlabs;
+        }
         const voice = isAdmin(msg.author.id) ? (s.ttsVoiceElevenlabs || s.ttsVoice) : s.ttsVoice;
         const ttsFile = await generateTTS(text, voice, msg.author.id);
         if (ttsFile) {
