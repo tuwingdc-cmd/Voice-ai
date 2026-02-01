@@ -1026,56 +1026,6 @@ function cleanTextForTTS(text) {
         .trim();
 }
 
-async function generateTTS(text, voice, userId = null) {
-    ensureTempDir();
-    const outputPath = path.join(CONFIG.tempPath, `tts_${Date.now()}.mp3`);
-    const safeText = cleanTextForTTS(text).slice(0, 2500);
-
-    if (!safeText || safeText.length < 2) {
-        throw new Error('Text too short');
-    }
-
-    const apiKey = CONFIG.elevenlabs?.apiKey;
-    const userIsAdmin = userId ? isAdmin(String(userId)) : false;
-    const hasValidKey = apiKey && apiKey !== 'xxx' && apiKey.length > 10;
-    
-    // Debug log
-    console.log(`🔊 TTS: userId=${userId}, isAdmin=${userIsAdmin}, hasKey=${hasValidKey}`);
-    
-    // ElevenLabs hanya untuk admin + jika ada API key
-    const useElevenlabs = userIsAdmin && hasValidKey;
-    
-    if (useElevenlabs) {
-        try {
-            // Pastikan voice adalah ElevenLabs voice ID
-            const elevenVoice = isElevenlabsVoice(voice) ? voice : CONFIG.elevenlabs.defaultVoice;
-            await generateElevenLabsTTS(safeText, elevenVoice, outputPath);
-            console.log(`🔊 ElevenLabs (Admin) | Voice: ${elevenVoice}`);
-            return outputPath;
-        } catch (error) {
-            console.error('❌ ElevenLabs error:', error.message);
-            console.log('⚠️ Falling back to edge-tts...');
-        }
-    }
-    
-    // Edge-TTS untuk user biasa atau fallback
-    const edgeVoice = isEdgeTTSVoice(voice) ? voice : 'id-ID-GadisNeural';
-    await generateEdgeTTS(safeText, edgeVoice, outputPath);
-    console.log(`🔊 Edge-TTS${userIsAdmin ? ' (Fallback)' : ''} | Voice: ${edgeVoice}`);
-    
-    return outputPath;
-}
-
-// Check apakah voice ID adalah ElevenLabs
-function isElevenlabsVoice(voiceId) {
-    return ELEVENLABS_VOICES.some(v => v.id === voiceId);
-}
-
-// Check apakah voice ID adalah Edge-TTS
-function isEdgeTTSVoice(voiceId) {
-    return voiceId.includes('Neural') || EDGE_TTS_VOICES.some(v => v.id === voiceId);
-}
-
 async function generateElevenLabsTTS(text, voiceId, outputPath) {
     const apiKey = CONFIG.elevenlabs.apiKey;
     const modelId = CONFIG.elevenlabs.modelId || 'eleven_multilingual_v2';
@@ -1101,21 +1051,24 @@ async function generateElevenLabsTTS(text, voiceId, outputPath) {
     };
 
     if (scraperKey) {
-        console.log(`🛡️ Proxy: Using ScraperAPI to bypass ElevenLabs IP block...`);
-        const proxyUrl = `http://scraperapi:${scraperKey}@proxy-server.scraperapi.com:8001`;
+        console.log(`🛡️ Proxy: Using ScraperAPI (Premium) to bypass IP block...`);
         
-        // Create proxy agent with SSL verification disabled
-        const agent = new HttpsProxyAgent(proxyUrl);
-        agent.options = { rejectUnauthorized: false }; // Hack for node-fetch
+        // UPDATE URL PROXY DI SINI:
+        const proxyUrl = `http://scraperapi.premium=true:${scraperKey}@proxy-server.scraperapi.com:8001`;
+        
+        const agent = new HttpsProxyAgent(proxyUrl, {
+            rejectUnauthorized: false
+        });
         
         fetchOptions.agent = agent;
     } else {
         console.log(`⚠️ Proxy: No ScraperAPI key found. Direct connection may fail (401).`);
     }
     
+    // Timeout diperpanjang
     const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
         ...fetchOptions,
-        timeout: 60000 
+        timeout: 120000 // 2 menit
     });
     
     if (!response.ok) {
@@ -3975,3 +3928,4 @@ client.login(CONFIG.token).then(() => {
     if (err.message.includes('DISALLOWED_INTENTS')) console.error('Enable MESSAGE CONTENT INTENT di Developer Portal!');
     process.exit(1);
 });
+
