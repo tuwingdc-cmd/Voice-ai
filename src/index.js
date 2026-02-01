@@ -2080,10 +2080,17 @@ async function handleAI(msg, query) {
         }
 
         // TTS untuk voice channel
+                // TTS untuk voice channel
         if (inVoice) {
             try {
                 const s = getSettings(msg.guild.id);
-                const ttsFile = await generateTTS(response.text, s.ttsVoice);
+                
+                // Pilih voice: ElevenLabs (Admin) atau Default (User)
+                const voice = isAdmin(msg.author.id) ? (s.ttsVoiceElevenlabs || s.ttsVoice) : s.ttsVoice;
+                
+                // Kirim ID untuk validasi di generateTTS
+                const ttsFile = await generateTTS(response.text, voice, msg.author.id);
+                
                 if (ttsFile) {
                     await playTTSInVoice(msg.guild.id, ttsFile);
                 }
@@ -3752,11 +3759,10 @@ async function handleStatusCommand(msg) {
                 name: '✨ Features',
                 value: [
                     `• AI Chat: ✅`,
-                    `• Voice TTS: ✅`,
-                    `• Voice AI: ${isVoiceAIEnabled(msg.guild.id) ? '🟢 Active' : '⚪ Inactive'}`,
+                    `• Voice AI: ${isVoiceAIEnabled(msg.guild.id) ? '🟢 ON' : '⚪ OFF'}`,
+                    `• TTS Public: Edge-TTS ✅`,
+                    `• TTS Admin: ${CONFIG.elevenlabs?.apiKey ? 'ElevenLabs 🟢' : 'Edge-TTS ⚪'}`,
                     `• Web Search: ${CONFIG.serperApiKey || CONFIG.tavilyApiKey ? '✅' : '❌'}`,
-                    `• URL Reading: ✅`,
-                    `• File Reading: ✅`,
                     `• Image Analysis: ${CONFIG.geminiApiKey ? '✅' : '❌'}`
                 ].join('\n'),
                 inline: true
@@ -3839,17 +3845,16 @@ async function handleHelpCommand(msg) {
                 inline: false
             },
             {
-                name: '🔊 Voice & Podcast',
+                name: '🎙️ Podcast Mode',
                 value: [
-                    '`.join` - Gabung voice channel',
-                    '`.leave` - Keluar voice',
-                    '`.speak <text>` - Text to speech',
-                    '`.stop` - Stop audio',
+                    '`.on` - Mulai podcast (Bot mendengar & menjawab)',
+                    '`.off` - Selesai podcast',
+                    '`.voiceai status` - Cek status',
                     '',
-                    '**🎙️ Voice AI (Podcast Mode):**',
-                    '`.voiceai on` - Aktifkan mode podcast',
-                    '`.voiceai off` - Matikan voice AI',
-                    '`.listen` - Quick start listening'
+                    '**🔊 Voice Commands:**',
+                    '`.speak <text>` - Bot bicara (TTS)',
+                    '`.join` / `.leave` - Kontrol voice channel',
+                    '`.stop` - Stop audio yang sedang main'
                 ].join('\n'),
                 inline: false
             },
