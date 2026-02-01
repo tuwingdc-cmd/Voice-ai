@@ -35,6 +35,7 @@ const path = require('path');
 const cheerio = require('cheerio');
 const fetch = require('node-fetch');
 const FormData = require('form-data');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 const { EndBehaviorType } = require('@discordjs/voice');
 const prism = require('prism-media');
 const pdfParse = require('pdf-parse');
@@ -91,11 +92,13 @@ const CONFIG = {
     maxFileSize: 10 * 1024 * 1024,
     maxImageSize: 5 * 1024 * 1024,
         // ElevenLabs TTS Settings (Admin Only)
+        // ElevenLabs TTS Settings (Admin Only + Proxy)
     elevenlabs: {
         apiKey: process.env.ELEVENLABS_API_KEY,
         modelId: 'eleven_multilingual_v2',
-        defaultVoice: '21m00Tcm4TlvDq8ikWAM',
-        adminOnly: true  // Hanya admin yang pakai ElevenLabs
+        defaultVoice: 'gmnazjXOFoOcWA59sd5m', // Voice ID Toing
+        adminOnly: true,
+        scraperApiKey: process.env.SCRAPERAPI_KEY // Tambah environment variable ini nanti
     },
     // Voice AI Settings
         voiceAI: {
@@ -836,8 +839,9 @@ const EDGE_TTS_VOICES = [
 
 // ElevenLabs Voices (PREMIUM - hanya admin)
 const ELEVENLABS_VOICES = [
-        // ===== YOUR SELECTED VOICE =====
-    { id: '21m00Tcm4TlvDq8ikWAM', name: '🎙️ Default (Rachel)', lang: 'en' },
+    // ===== YOUR SELECTED VOICE =====
+    { id: 'gmnazjXOFoOcWA59sd5m', name: '🎙️ Default Voice', lang: 'multi' },
+    
     // ===== ELEVENLABS PREMADE =====
     { id: 'EXAVITQu4vr4xnSDxMaL', name: '🇺🇸 Bella (Female)', lang: 'en' },
     { id: 'ErXwobaYiN019PkySvjV', name: '🇺🇸 Antoni (Male)', lang: 'en' },
@@ -1075,8 +1079,10 @@ function isEdgeTTSVoice(voiceId) {
 async function generateElevenLabsTTS(text, voiceId, outputPath) {
     const apiKey = CONFIG.elevenlabs.apiKey;
     const modelId = CONFIG.elevenlabs.modelId || 'eleven_multilingual_v2';
+    const scraperKey = CONFIG.elevenlabs.scraperApiKey;
     
-    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+    // Siapkan options dasar
+    let fetchOptions = {
         method: 'POST',
         headers: {
             'Accept': 'audio/mpeg',
@@ -1093,6 +1099,23 @@ async function generateElevenLabsTTS(text, voiceId, outputPath) {
                 use_speaker_boost: true
             }
         })
+    };
+
+    // Tambahkan Proxy jika ScraperAPI Key tersedia
+    if (scraperKey) {
+        console.log(`🛡️ Proxy: Using ScraperAPI to bypass ElevenLabs IP block...`);
+        // Format Proxy ScraperAPI: http://scraperapi:KEY@proxy-server.scraperapi.com:8001
+        const proxyUrl = `http://scraperapi:${scraperKey}@proxy-server.scraperapi.com:8001`;
+        const agent = new HttpsProxyAgent(proxyUrl);
+        fetchOptions.agent = agent;
+    } else {
+        console.log(`⚠️ Proxy: No ScraperAPI key found. Direct connection may fail (401).`);
+    }
+    
+    // Request dengan timeout lebih lama karena lewat proxy
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+        ...fetchOptions,
+        timeout: 60000 // 60 detik timeout untuk proxy
     });
     
     if (!response.ok) {
@@ -1107,6 +1130,8 @@ async function generateElevenLabsTTS(text, voiceId, outputPath) {
     }
     
     fs.writeFileSync(outputPath, audioBuffer);
+    console.log(`✅ ElevenLabs generated: ${audioBuffer.length} bytes`);
+    
     return outputPath;
 }
 
@@ -3375,7 +3400,7 @@ Reply ke pesan dengan attachment + ketik \`.read\`
 • 📄 Dokumen: PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx)
 • 💻 Code: JS, Python, Java, C++, Go, Rust, dll
 • 📊 Data: JSON, YAML, XML, CSV
-• 📝 Text: TXT, MD, LOG, dll`);
+• ?? Text: TXT, MD, LOG, dll`);
 }
 
 async function handleAnalyzeCommand(msg, args) {
@@ -3950,4 +3975,3 @@ client.login(CONFIG.token).then(() => {
     if (err.message.includes('DISALLOWED_INTENTS')) console.error('Enable MESSAGE CONTENT INTENT di Developer Portal!');
     process.exit(1);
 });
-
