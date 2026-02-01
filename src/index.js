@@ -1581,6 +1581,13 @@ function setupVoiceReceiver(connection, guildId, textChannel) {
 function startRecording(connection, userId, guildId, textChannel) {
     if (voiceRecordings.has(userId)) return;
     
+    // Check if bot is speaking (prevent recording own TTS)
+    const session = voiceAISessions.get(guildId);
+    if (session?.isSpeaking) {
+        console.log(`⏭️ Skipped recording - bot is speaking`);
+        return;
+    }
+    
     const receiver = connection.receiver;
     
     console.log(`🎙️ Started recording user ${userId}`);
@@ -1691,8 +1698,15 @@ async function processVoiceInput(userId, guildId, audioBuffer, textChannel) {
             'hmm', 'uhh', 'ehh', 'ahh', 'umm',
             'hm', 'uh', 'eh', 'ah', 'um',
             'terima kasih', 'thank you', 'thanks',
-            'oke', 'okay', 'ok'
+            'you\'re welcome', 'sama-sama',
+            'oke', 'okay', 'ok',
+            'hvað', 'það',  // Icelandic noise
+            'yes', 'no', 'ya', 'tidak'
         ];
+        
+        // Also skip if detected as non-Indonesian/English with short duration
+        const validLanguages = ['indonesian', 'english', 'javanese', 'sundanese'];
+        // Check from Whisper result if available
         
         if (skipPhrases.includes(text) || text.length < 5) {
             console.log(`⏭️ Skipped filler: "${text}"`);
@@ -1705,9 +1719,13 @@ async function processVoiceInput(userId, guildId, audioBuffer, textChannel) {
         }
         
         // Mark bot as speaking
-        if (session) session.isSpeaking = true;
+                // Mark bot as speaking (prevent hearing itself)
+        if (session) {
+            session.isSpeaking = true;
+            session.speakingStartedAt = Date.now();
+        }
         
-        // Call AI - langsung pakai transcription tanpa filter wake word
+        // Call AI
         console.log(`🤖 Processing: "${transcription}"`);
         const response = await callAI(guildId, userId, transcription, true);
         console.log(`✅ AI responded (${response.latency}ms)`);
@@ -1717,23 +1735,36 @@ async function processVoiceInput(userId, guildId, audioBuffer, textChannel) {
             textChannel.send(`${response.text}\n\n-# ${info}`).catch(() => {});
         }
         
-        const s = getSettings(guildId);
+                        const s = getSettings(guildId);
         const ttsFile = await generateTTS(response.text, s.ttsVoice);
         await playTTSInVoice(guildId, ttsFile);
         
         console.log(`✅ Voice response complete!`);
         
-    } catch (error) {
-        console.error('❌ Voice error:', error.message);
-    } finally {
-        cleanupFile(tempFile);
-        processingUsers.delete(userId);
-        
-        // Delay before listening again
+        // Keep speaking lock for extra time after TTS finishes
+        // This prevents bot from hearing its own voice echo
         setTimeout(() => {
             const session = voiceAISessions.get(guildId);
-            if (session) session.isSpeaking = false;
-        }, 2000);
+            if (session) {
+                session.isSpeaking = false;
+                console.log(`🔓 Ready to listen again`);
+            }
+        }, 3000);  // 3 detik delay setelah TTS selesai
+        
+        // Reset speaking lock setelah TTS selesai + delay
+        setTimeout(() => {
+            const session = voiceAISessions.get(guildId);
+            if (session) {
+                session.isSpeaking = false;
+                console.log(`🔓 Ready to listen again`);
+            }
+        }, 3000);
+        
+    } catch (error) {
+        console.error('❌ Voice error:', error.message);
+        } finally {
+        cleanupFile(tempFile);
+        processingUsers.delete(userId);
     }
 }
 
