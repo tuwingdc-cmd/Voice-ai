@@ -1,6 +1,6 @@
 # ============================================================
-#         TOING DISCORD AI BOT v3.1 - DOCKERFILE
-#         Complete Edition with Voice AI & ElevenLabs TTS
+#         TOING DISCORD AI BOT v3.2 - DOCKERFILE
+#         Complete Edition with Voice AI, ScraperAPI, Multi-TTS
 # ============================================================
 
 FROM node:20-bullseye-slim
@@ -10,7 +10,7 @@ FROM node:20-bullseye-slim
 # ============================================================
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Python for edge-tts (fallback)
+    # Python for TTS
     python3 \
     python3-pip \
     # Build tools for native modules
@@ -30,9 +30,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Utilities
     curl \
     ca-certificates \
-    # Install edge-tts as fallback
-    && pip3 install --no-cache-dir edge-tts \
-    # Cleanup
+    # Install TTS engines
+    && pip3 install --no-cache-dir edge-tts gtts \
+    # Cleanup to reduce image size
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /root/.cache
 
@@ -42,15 +42,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# Copy package files first (for layer caching)
 COPY package*.json ./
 
+# Install node dependencies
 RUN npm install --omit=dev \
     && npm rebuild @discordjs/opus --update-binary 2>/dev/null || true \
     && npm rebuild sodium-native --update-binary 2>/dev/null || true \
     && npm cache clean --force
 
+# Copy source files
 COPY . .
 
+# Create necessary directories
 RUN mkdir -p temp data logs modules \
     && chmod 755 temp data logs modules
 
