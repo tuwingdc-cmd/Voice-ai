@@ -1143,7 +1143,15 @@ async function generateElevenLabsTTS(text, voiceId, outputPath) {
 function generateEdgeTTS(text, voice, outputPath) {
     return new Promise((resolve, reject) => {
         const safeText = text.replace(/"/g, "'").replace(/`/g, "'");
-        const cmd = `edge-tts --voice "${voice}" --text "${safeText}" --write-media "${outputPath}"`;
+        
+        // Tambahkan parameter --rate
+        // +20% = sedikit lebih cepat (natural)
+        // +50% = cepat banget
+        const rate = "+20%"; 
+        
+        const cmd = `edge-tts --voice "${voice}" --rate="${rate}" --text "${safeText}" --write-media "${outputPath}"`;
+        
+        console.log(`🔊 Edge-TTS: Generating with rate ${rate}`);
         
         exec(cmd, { timeout: 30000 }, (err) => {
             if (err) reject(err);
@@ -1151,7 +1159,6 @@ function generateEdgeTTS(text, voice, outputPath) {
         });
     });
 }
-
 // ==================== AI PROVIDER CALLS ====================
 
 async function callGemini(model, message, history, systemPrompt, useGrounding = false) {
@@ -3980,5 +3987,6 @@ client.login(CONFIG.token).then(() => {
     if (err.message.includes('DISALLOWED_INTENTS')) console.error('Enable MESSAGE CONTENT INTENT di Developer Portal!');
     process.exit(1);
 });
+
 
 
