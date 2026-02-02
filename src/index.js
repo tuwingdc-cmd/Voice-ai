@@ -802,43 +802,36 @@ const AI_PROVIDERS = {
 
 // ==================== TTS VOICES ====================
 
-// Edge-TTS Voices (FREE - untuk semua user)
-const EDGE_TTS_VOICES = [
-    // Indonesia 
+// Premium TTS Voices untuk Admin (Edge-TTS - GRATIS!)
+const ELEVENLABS_VOICES = [
+    // Indonesia
     { id: 'id-ID-ArdiNeural', name: '🇮🇩 Ardi (Pria)', lang: 'id' },
     { id: 'id-ID-GadisNeural', name: '🇮🇩 Gadis (Wanita)', lang: 'id' },
     // English US
+    { id: 'en-US-AndrewNeural', name: '🇺🇸 Andrew (Male)', lang: 'en' },
+    { id: 'en-US-AvaNeural', name: '🇺🇸 Ava (Female)', lang: 'en' },
+    { id: 'en-US-BrianNeural', name: '🇺🇸 Brian (Male)', lang: 'en' },
+    { id: 'en-US-EmmaNeural', name: '🇺🇸 Emma (Female)', lang: 'en' },
     { id: 'en-US-JennyNeural', name: '🇺🇸 Jenny (Female)', lang: 'en' },
     { id: 'en-US-GuyNeural', name: '🇺🇸 Guy (Male)', lang: 'en' },
-    { id: 'en-US-AriaNeural', name: '🇺🇸 Aria (Female)', lang: 'en' },
-    { id: 'en-US-DavisNeural', name: '🇺🇸 Davis (Male)', lang: 'en' },
     // English UK
-    { id: 'en-GB-SoniaNeural', name: '🇬🇧 Sonia (Female)', lang: 'en' },
     { id: 'en-GB-RyanNeural', name: '🇬🇧 Ryan (Male)', lang: 'en' },
+    { id: 'en-GB-SoniaNeural', name: '🇬🇧 Sonia (Female)', lang: 'en' },
     // Japanese
-    { id: 'ja-JP-NanamiNeural', name: '🇯🇵 Nanami (Female)', lang: 'ja' },
     { id: 'ja-JP-KeitaNeural', name: '🇯🇵 Keita (Male)', lang: 'ja' },
+    { id: 'ja-JP-NanamiNeural', name: '🇯🇵 Nanami (Female)', lang: 'ja' },
     // Korean
-    { id: 'ko-KR-SunHiNeural', name: '🇰🇷 SunHi (Female)', lang: 'ko' },
     { id: 'ko-KR-InJoonNeural', name: '🇰🇷 InJoon (Male)', lang: 'ko' },
+    { id: 'ko-KR-SunHiNeural', name: '🇰🇷 SunHi (Female)', lang: 'ko' },
     // Chinese
-    { id: 'zh-CN-XiaoxiaoNeural', name: '🇨🇳 Xiaoxiao (Female)', lang: 'zh' },
     { id: 'zh-CN-YunxiNeural', name: '🇨🇳 Yunxi (Male)', lang: 'zh' },
+    { id: 'zh-CN-XiaoxiaoNeural', name: '🇨🇳 Xiaoxiao (Female)', lang: 'zh' },
     // French
-    { id: 'fr-FR-DeniseNeural', name: '🇫🇷 Denise (Female)', lang: 'fr' },
     { id: 'fr-FR-HenriNeural', name: '🇫🇷 Henri (Male)', lang: 'fr' },
+    { id: 'fr-FR-DeniseNeural', name: '🇫🇷 Denise (Female)', lang: 'fr' },
     // German
-    { id: 'de-DE-KatjaNeural', name: '🇩🇪 Katja (Female)', lang: 'de' },
     { id: 'de-DE-ConradNeural', name: '🇩🇪 Conrad (Male)', lang: 'de' },
-    // Spanish
-    { id: 'es-ES-ElviraNeural', name: '🇪🇸 Elvira (Female)', lang: 'es' },
-    { id: 'es-MX-DaliaNeural', name: '🇲🇽 Dalia (Female)', lang: 'es' },
-    // Portuguese
-    { id: 'pt-BR-FranciscaNeural', name: '🇧🇷 Francisca (Female)', lang: 'pt' },
-    { id: 'pt-BR-AntonioNeural', name: '🇧🇷 Antonio (Male)', lang: 'pt' },
-    // Russian
-    { id: 'ru-RU-SvetlanaNeural', name: '🇷🇺 Svetlana (Female)', lang: 'ru' },
-    { id: 'ru-RU-DmitryNeural', name: '🇷🇺 Dmitry (Male)', lang: 'ru' }
+    { id: 'de-DE-KatjaNeural', name: '🇩🇪 Katja (Female)', lang: 'de' },
 ];
 
 // ElevenLabs Voices (PREMIUM - hanya admin)
@@ -1054,12 +1047,17 @@ async function generateTTS(text, voice, userId = null) {
 
 // Check apakah voice ID adalah ElevenLabs
 function isElevenlabsVoice(voiceId) {
-    return isMiniMaxVoice(voiceId);
+    if (!voiceId) return false;
+    return ELEVENLABS_VOICES.some(v => v.id === voiceId);
 }
 
 // Check apakah voice ID adalah Edge-TTS
 function isEdgeTTSVoice(voiceId) {
-    return voiceId.includes('Neural') || EDGE_TTS_VOICES.some(v => v.id === voiceId);
+    if (!voiceId) return false;
+    // Semua voice dengan Neural adalah Edge-TTS
+    if (voiceId.includes('Neural')) return true;
+    // Cek di daftar
+    return EDGE_TTS_VOICES.some(v => v.id === voiceId) || ELEVENLABS_VOICES.some(v => v.id === voiceId);
 }
 
 async function generateElevenLabsTTS(text, voiceId, outputPath) {
