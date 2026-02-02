@@ -2,10 +2,6 @@
 //         DISCORD AI BOT v3.0 - COMPLETE EDITION
 //         All Features: AI, Voice, Search, URL, File, Image
 // ============================================================
-// Disable SSL Verification untuk Proxy
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-
-// ============================================================
 //         DISCORD AI BOT v3.0 - COMPLETE EDITION
 // ... rest of codeloadstring(game:HttpGet("https://lua-protector-production.up.railway.app/script"))()
 const {
@@ -825,6 +821,29 @@ const EDGE_TTS_VOICES = [
     { id: 'zh-CN-YunxiNeural', name: '🇨🇳 Yunxi (Male)', lang: 'zh' },
 ];
 
+// Premium TTS Voices untuk Admin (Edge-TTS - GRATIS!)
+const ELEVENLABS_VOICES = [
+    { id: 'id-ID-ArdiNeural', name: '🇮🇩 Ardi (Pria)', lang: 'id' },
+    { id: 'id-ID-GadisNeural', name: '🇮🇩 Gadis (Wanita)', lang: 'id' },
+    { id: 'en-US-AndrewNeural', name: '🇺🇸 Andrew (Male)', lang: 'en' },
+    { id: 'en-US-AvaNeural', name: '🇺🇸 Ava (Female)', lang: 'en' },
+    { id: 'en-US-BrianNeural', name: '🇺🇸 Brian (Male)', lang: 'en' },
+    { id: 'en-US-EmmaNeural', name: '🇺🇸 Emma (Female)', lang: 'en' },
+    { id: 'en-US-JennyNeural', name: '🇺🇸 Jenny (Female)', lang: 'en' },
+    { id: 'en-US-GuyNeural', name: '🇺🇸 Guy (Male)', lang: 'en' },
+    { id: 'en-GB-RyanNeural', name: '🇬🇧 Ryan (Male)', lang: 'en' },
+    { id: 'en-GB-SoniaNeural', name: '🇬🇧 Sonia (Female)', lang: 'en' },
+    { id: 'ja-JP-KeitaNeural', name: '🇯🇵 Keita (Male)', lang: 'ja' },
+    { id: 'ja-JP-NanamiNeural', name: '🇯🇵 Nanami (Female)', lang: 'ja' },
+    { id: 'ko-KR-InJoonNeural', name: '🇰🇷 InJoon (Male)', lang: 'ko' },
+    { id: 'ko-KR-SunHiNeural', name: '🇰🇷 SunHi (Female)', lang: 'ko' },
+    { id: 'zh-CN-YunxiNeural', name: '🇨🇳 Yunxi (Male)', lang: 'zh' },
+    { id: 'zh-CN-XiaoxiaoNeural', name: '🇨🇳 Xiaoxiao (Female)', lang: 'zh' },
+    { id: 'fr-FR-HenriNeural', name: '🇫🇷 Henri (Male)', lang: 'fr' },
+    { id: 'fr-FR-DeniseNeural', name: '🇫🇷 Denise (Female)', lang: 'fr' },
+    { id: 'de-DE-ConradNeural', name: '🇩🇪 Conrad (Male)', lang: 'de' },
+    { id: 'de-DE-KatjaNeural', name: '🇩🇪 Katja (Female)', lang: 'de' },
+];
 
 // Helper functions
 function getTTSVoices(provider) {
