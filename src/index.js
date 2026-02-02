@@ -803,35 +803,26 @@ const AI_PROVIDERS = {
 // ==================== TTS VOICES ====================
 
 // Premium TTS Voices untuk Admin (Edge-TTS - GRATIS!)
-const ELEVENLABS_VOICES = [
-    // Indonesia
+// Edge-TTS Voices (FREE - untuk semua user)
+const EDGE_TTS_VOICES = [
+    // Indonesia 
     { id: 'id-ID-ArdiNeural', name: '🇮🇩 Ardi (Pria)', lang: 'id' },
     { id: 'id-ID-GadisNeural', name: '🇮🇩 Gadis (Wanita)', lang: 'id' },
     // English US
-    { id: 'en-US-AndrewNeural', name: '🇺🇸 Andrew (Male)', lang: 'en' },
-    { id: 'en-US-AvaNeural', name: '🇺🇸 Ava (Female)', lang: 'en' },
-    { id: 'en-US-BrianNeural', name: '🇺🇸 Brian (Male)', lang: 'en' },
-    { id: 'en-US-EmmaNeural', name: '🇺🇸 Emma (Female)', lang: 'en' },
     { id: 'en-US-JennyNeural', name: '🇺🇸 Jenny (Female)', lang: 'en' },
     { id: 'en-US-GuyNeural', name: '🇺🇸 Guy (Male)', lang: 'en' },
     // English UK
-    { id: 'en-GB-RyanNeural', name: '🇬🇧 Ryan (Male)', lang: 'en' },
     { id: 'en-GB-SoniaNeural', name: '🇬🇧 Sonia (Female)', lang: 'en' },
+    { id: 'en-GB-RyanNeural', name: '🇬🇧 Ryan (Male)', lang: 'en' },
     // Japanese
-    { id: 'ja-JP-KeitaNeural', name: '🇯🇵 Keita (Male)', lang: 'ja' },
     { id: 'ja-JP-NanamiNeural', name: '🇯🇵 Nanami (Female)', lang: 'ja' },
+    { id: 'ja-JP-KeitaNeural', name: '🇯🇵 Keita (Male)', lang: 'ja' },
     // Korean
-    { id: 'ko-KR-InJoonNeural', name: '🇰🇷 InJoon (Male)', lang: 'ko' },
     { id: 'ko-KR-SunHiNeural', name: '🇰🇷 SunHi (Female)', lang: 'ko' },
+    { id: 'ko-KR-InJoonNeural', name: '🇰🇷 InJoon (Male)', lang: 'ko' },
     // Chinese
-    { id: 'zh-CN-YunxiNeural', name: '🇨🇳 Yunxi (Male)', lang: 'zh' },
     { id: 'zh-CN-XiaoxiaoNeural', name: '🇨🇳 Xiaoxiao (Female)', lang: 'zh' },
-    // French
-    { id: 'fr-FR-HenriNeural', name: '🇫🇷 Henri (Male)', lang: 'fr' },
-    { id: 'fr-FR-DeniseNeural', name: '🇫🇷 Denise (Female)', lang: 'fr' },
-    // German
-    { id: 'de-DE-ConradNeural', name: '🇩🇪 Conrad (Male)', lang: 'de' },
-    { id: 'de-DE-KatjaNeural', name: '🇩🇪 Katja (Female)', lang: 'de' },
+    { id: 'zh-CN-YunxiNeural', name: '🇨🇳 Yunxi (Male)', lang: 'zh' },
 ];
 
 
