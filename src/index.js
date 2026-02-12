@@ -51,11 +51,47 @@ const DynamicManager = require('./modules/dynamicManager');
 const { generateMiniMaxTTS, isMiniMaxVoice, MINIMAX_VOICES } = require('./modules/minimax-tts');
 const { resolveURL } = require('./modules/url-resolver');
 
+// ============================================================
+//         RENDER & GITHUB INTEGRATION (NEW)
+// ============================================================
+const RenderAPI = require('./modules/renderAPI');
+const GitHubAPI = require('./modules/githubAPI');
+const WebhookServer = require('./modules/webhookServer');
+const renderCommands = require('./commands/renderCommands');
+const githubCommands = require('./commands/githubCommands');
+
 // ==================== HEALTH SERVER ====================
 
 const startTime = Date.now();
 
-const healthServer = createServer((req, res) => {
+// ============================================================
+//         HEALTH SERVER + WEBHOOK HANDLER (UPGRADED)
+// ============================================================
+
+let webhookHandler = null; // Will be initialized after client ready
+
+const healthServer = createServer(async (req, res) => {
+    // Collect body for POST requests
+    let body = '';
+    
+    if (req.method === 'POST') {
+        for await (const chunk of req) {
+            body += chunk;
+        }
+    }
+    
+    // ===== WEBHOOK ENDPOINTS =====
+    if (req.url.startsWith('/webhook/') && req.method === 'POST') {
+        if (webhookHandler) {
+            await webhookHandler.handleRequest(req, res, body);
+        } else {
+            res.writeHead(503);
+            res.end('Webhook handler not ready');
+        }
+        return;
+    }
+    
+    // ===== HEALTH CHECK ENDPOINT =====
     const status = {
         status: 'ok',
         bot: client?.user?.tag || 'starting...',
@@ -68,9 +104,18 @@ const healthServer = createServer((req, res) => {
             search: true,
             urlReading: true,
             fileReading: true,
-            imageAnalysis: true
+            imageAnalysis: true,
+            // NEW FEATURES
+            renderAPI: !!CONFIG.renderApiKey,
+            githubAPI: !!CONFIG.githubToken,
+            webhooks: !!CONFIG.webhookSecret
+        },
+        webhookEndpoints: {
+            render: '/webhook/render',
+            github: '/webhook/github'
         }
     };
+    
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(status, null, 2));
 });
@@ -98,6 +143,15 @@ const CONFIG = {
     openrouterApiKey: process.env.OPENROUTER_API_KEY,
     huggingfaceApiKey: process.env.HUGGINGFACE_API_KEY,
     pollinationsApiKey: process.env.POLLINATIONS_API_KEY,
+    // ============================================================
+    //         RENDER & GITHUB CONFIG (NEW)
+    // ============================================================
+    renderApiKey: process.env.RENDER_API_KEY,
+    renderOwnerId: process.env.RENDER_OWNER_ID,
+    githubToken: process.env.GITHUB_TOKEN,
+    webhookSecret: process.env.WEBHOOK_SECRET,
+    notificationChannelId: process.env.NOTIFICATION_CHANNEL_ID,
+    
     maxConversationMessages: 100,
     maxConversationAge: 7200000,
     rateLimitWindow: 60000,
@@ -121,9 +175,31 @@ const CONFIG = {
         minAudioLength: 500,
         supportedLanguages: ['id', 'en']
     }
-}; // Pastikan ada titik koma dan kurung tutup di sini
+}; 
+
+// Pastikan ada titik koma dan kurung tutup di sini
 // Initialize Dynamic Manager
 const manager = new DynamicManager(process.env.REDIS_URL, CONFIG.adminIds);
+// ============================================================
+//         INITIALIZE RENDER & GITHUB APIs (NEW)
+// ============================================================
+
+let renderAPI = null;
+let githubAPI = null;
+
+if (CONFIG.renderApiKey && CONFIG.renderOwnerId) {
+    renderAPI = new RenderAPI(CONFIG.renderApiKey, CONFIG.renderOwnerId);
+    console.log('✅ Render API initialized');
+} else {
+    console.warn('⚠️ Render API keys not set (RENDER_API_KEY, RENDER_OWNER_ID)');
+}
+
+if (CONFIG.githubToken) {
+    githubAPI = new GitHubAPI(CONFIG.githubToken);
+    console.log('✅ GitHub API initialized');
+} else {
+    console.warn('⚠️ GitHub token not set (GITHUB_TOKEN)');
+}
 
 // ==================== RATE LIMITER ====================
 
@@ -2701,6 +2777,35 @@ client.on(Events.MessageCreate, async (msg) => {
                 break;
 
             // ===== SETTINGS COMMANDS =====
+                        // ============================================================
+            //         RENDER COMMANDS (NEW)
+            // ============================================================
+            case 'render':
+            case 'rnd':
+                if (!renderAPI) {
+                    return msg.reply('❌ Render API tidak dikonfigurasi.\n\nTambahkan `RENDER_API_KEY` dan `RENDER_OWNER_ID` di environment variables.');
+                }
+                if (!isAdmin(msg.author.id)) {
+                    return msg.reply('❌ Command ini hanya untuk Admin');
+                }
+                await renderCommands.handle(msg, args, renderAPI);
+                break;
+
+            // ============================================================
+            //         GITHUB COMMANDS (NEW)
+            // ============================================================
+            case 'github':
+            case 'gh':
+            case 'git':
+                if (!githubAPI) {
+                    return msg.reply('❌ GitHub API tidak dikonfigurasi.\n\nTambahkan `GITHUB_TOKEN` di environment variables.');
+                }
+                if (!isAdmin(msg.author.id)) {
+                    return msg.reply('❌ Command ini hanya untuk Admin');
+                }
+                await githubCommands.handle(msg, args, githubAPI);
+                break;
+            
             case 'settings':
             case 'config':
             case 'set':
@@ -4235,6 +4340,29 @@ async function handleHelpCommand(msg) {
                 inline: false
             },
             {
+                name: '🚀 Render (DevOps)',
+                value: [
+                    '`.render list` - List services',
+                    '`.render status <id>` - Service detail',
+                    '`.render deploy <id>` - Deploy service',
+                    '`.render logs <id>` - View logs',
+                    '`.render suspend/resume <id>` - Control service',
+                    '`.render env <id> list/set/delete`'
+                ].join('\n'),
+                inline: false
+            },
+            {
+                name: '🐙 GitHub (DevOps)',
+                value: [
+                    '`.github repos` - List repositories',
+                    '`.github fork <url>` - Fork repository',
+                    '`.github browse <repo>` - Browse files',
+                    '`.github commits <repo>` - View commits',
+                    '`.github create/delete <name>`'
+                ].join('\n'),
+                inline: false
+            },            
+            {
                 name: '⚙️ Admin Commands',
                 value: [
                     '`.settings` - Panel pengaturan',
@@ -4285,16 +4413,43 @@ async function handleModelInfoCommand(msg) {
 }
 
 // ==================== BOT EVENTS & LOGIN ====================
+// ============================================================
+//         BOT READY EVENT (UPGRADED)
+// ============================================================
+
 client.once(Events.ClientReady, () => {
     console.log('='.repeat(50));
     console.log(`✅ ${client.user.tag} is ONLINE!`);
     console.log(`📡 Serving ${client.guilds.cache.size} servers`);
-    console.log(`📦 v3.0.0 Complete Edition`);
+    console.log(`📦 v3.0.0 Complete Edition + DevOps`);
     console.log('='.repeat(50));
+    
+    // Log active features
+    console.log('🔧 Active Features:');
+    console.log(`   • AI Chat: ✅`);
+    console.log(`   • Voice AI: ✅`);
+    console.log(`   • Render API: ${renderAPI ? '✅' : '❌'}`);
+    console.log(`   • GitHub API: ${githubAPI ? '✅' : '❌'}`);
+    console.log(`   • Webhooks: ${CONFIG.webhookSecret ? '✅' : '❌'}`);
+    console.log('='.repeat(50));
+    
+    // Initialize Webhook Handler
+    if (CONFIG.webhookSecret || CONFIG.notificationChannelId) {
+        webhookHandler = new WebhookServer(client, {
+            webhookSecret: CONFIG.webhookSecret,
+            notificationChannelId: CONFIG.notificationChannelId,
+            adminIds: CONFIG.adminIds
+        });
+        console.log('🔔 Webhook handler initialized');
+        console.log(`   • Render: POST /webhook/render`);
+        console.log(`   • GitHub: POST /webhook/github`);
+    }
+    
     client.user.setPresence({
         status: 'online',
-        activities: [{ name: '.help | AI Assistant', type: ActivityType.Listening }]
+        activities: [{ name: '.help | AI + DevOps', type: ActivityType.Listening }]
     });
+    
     ensureTempDir();
 });
 
@@ -4317,4 +4472,3 @@ client.login(CONFIG.token).then(() => {
     if (err.message.includes('DISALLOWED_INTENTS')) console.error('Enable MESSAGE CONTENT INTENT di Developer Portal!');
     process.exit(1);
 });
-
