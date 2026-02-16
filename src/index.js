@@ -761,69 +761,85 @@ Ingat: Lebih baik jujur tidak tahu daripada memberikan informasi yang salah.`;
 // ==================== POLLINATIONS MODELS (SHARED) ====================
 
 const POLLINATIONS_MODELS = [
-    // OpenAI Models
-    { id: 'openai', name: 'OpenAI GPT', version: 'GPT-5-nano' },
-    { id: 'openai-fast', name: 'OpenAI Fast', version: 'GPT-5-fast' },
-    { id: 'openai-large', name: 'OpenAI Large', version: 'GPT-5-large' },
-    { id: 'openai-reasoning', name: 'OpenAI Reasoning', version: 'o3-mini' },
+    // OpenAI Models - PERLU UPDATE
+    { id: 'openai', name: 'OpenAI GPT', version: 'GPT-5.2' }, // GPT-5-nano tidak ditemukan
+    { id: 'openai-fast', name: 'OpenAI Fast', version: 'GPT-5.2-fast' },
+    { id: 'openai-large', name: 'OpenAI Large', version: 'GPT-5.3-Codex' }, // Model terbaru Feb 2026
+    { id: 'openai-reasoning', name: 'OpenAI Reasoning', version: 'o4-mini' }, // o3-mini sudah diganti o4
     { id: 'openai-audio', name: 'OpenAI Audio', version: 'GPT-4o-audio' },
-    // Claude Models
+    
+    // Claude Models - PERLU UPDATE
     { id: 'claude', name: 'Claude', version: 'Claude-3.5' },
     { id: 'claude-fast', name: 'Claude Fast', version: 'Claude-fast' },
     { id: 'claude-large', name: 'Claude Large', version: 'Claude-large' },
-    { id: 'claude-haiku', name: 'Claude Haiku', version: 'Haiku-4.5' },
-    { id: 'claude-sonnet', name: 'Claude Sonnet', version: 'Sonnet-4.5' },
-    { id: 'claude-opus', name: 'Claude Opus', version: 'Opus-4.5' },
-    // Gemini Models
-    { id: 'gemini', name: 'Gemini', version: 'Gemini-3-Flash' },
-    { id: 'gemini-fast', name: 'Gemini Fast', version: 'Gemini-fast' },
-    { id: 'gemini-large', name: 'Gemini Large', version: 'Gemini-large' },
+    { id: 'claude-haiku', name: 'Claude Haiku', version: 'Haiku-4' }, // Haiku-4.5 belum tersedia
+    { id: 'claude-sonnet', name: 'Claude Sonnet', version: 'Sonnet-4' }, // Sonnet-4.5 belum tersedia
+    { id: 'claude-opus', name: 'Claude Opus', version: 'Opus-4.6' }, // Update terbaru Feb 2026
+    
+    // Gemini Models - PERLU UPDATE BESAR
+    { id: 'gemini', name: 'Gemini', version: 'Gemini-3-Flash' }, // Update ke Gemini 3
+    { id: 'gemini-fast', name: 'Gemini Fast', version: 'Gemini-3-Flash' },
+    { id: 'gemini-large', name: 'Gemini Large', version: 'Gemini-3-Pro' },
     { id: 'gemini-search', name: 'Gemini Search', version: 'Gemini-search' },
-    { id: 'gemini-legacy', name: 'Gemini Legacy', version: 'Gemini-2.5' },
-    { id: 'gemini-thinking', name: 'Gemini Thinking', version: 'Thinking' },
+    { id: 'gemini-legacy', name: 'Gemini Legacy', version: 'Gemini-2.5-Pro' }, // 2.5 masih ada
+    { id: 'gemini-thinking', name: 'Gemini Deep Think', version: 'Deep-Think' }, // Nama yang benar
+    
     // DeepSeek Models
     { id: 'deepseek', name: 'DeepSeek', version: 'V3' },
-    { id: 'deepseek-v3', name: 'DeepSeek V3', version: 'V3-latest' },
+    { id: 'deepseek-v3', name: 'DeepSeek V3', version: 'V3.2' }, // Update ke V3.2
     { id: 'deepseek-r1', name: 'DeepSeek R1', version: 'R1' },
     { id: 'deepseek-reasoning', name: 'DeepSeek Reasoning', version: 'R1-Reasoner' },
+    
     // Qwen Models
-    { id: 'qwen', name: 'Qwen', version: 'Qwen3' },
+    { id: 'qwen', name: 'Qwen', version: 'Qwen3-32B' }, // Update spesifik
     { id: 'qwen-coder', name: 'Qwen Coder', version: 'Qwen3-Coder' },
+    
     // Llama Models
-    { id: 'llama', name: 'Llama', version: 'Llama-3.3' },
+    { id: 'llama', name: 'Llama', version: 'Llama-3.3-70B' }, // Spesifik
+    { id: 'llama-4', name: 'Llama 4', version: 'Llama-4-Scout' }, // TAMBAHAN model baru
     { id: 'llamalight', name: 'Llama Light', version: 'Llama-70B' },
+    
     // Mistral Models
-    { id: 'mistral', name: 'Mistral', version: 'Mistral-Small' },
-    { id: 'mistral-small', name: 'Mistral Small', version: 'Mistral-3.2' },
-    { id: 'mistral-large', name: 'Mistral Large', version: 'Mistral-Large' },
+    { id: 'mistral', name: 'Mistral', version: 'Mistral-Small-3.1' },
+    { id: 'mistral-small', name: 'Mistral Small', version: 'Mistral-3.2-24B' },
+    { id: 'mistral-large', name: 'Mistral Large', version: 'Mistral-Large-123B' }, // Update
+    
     // Perplexity Models
     { id: 'perplexity-fast', name: 'Perplexity Fast', version: 'Sonar' },
     { id: 'perplexity-reasoning', name: 'Perplexity Reasoning', version: 'Sonar-Pro' },
+    
     // Chinese AI Models
-    { id: 'kimi', name: 'Kimi', version: 'Kimi-K2.5' },
+    { id: 'kimi', name: 'Kimi', version: 'Kimi-K2' }, // K2.5 belum dikonfirmasi
     { id: 'kimi-large', name: 'Kimi Large', version: 'Kimi-large' },
     { id: 'kimi-reasoning', name: 'Kimi Reasoning', version: 'Kimi-reasoning' },
-    { id: 'glm', name: 'GLM', version: 'GLM-4.7' },
+    { id: 'glm', name: 'GLM', version: 'GLM-4.5-Air' }, // Update
     { id: 'minimax', name: 'MiniMax', version: 'M2.1' },
+    
     // Grok Models
     { id: 'grok', name: 'Grok', version: 'Grok-4' },
     { id: 'grok-fast', name: 'Grok Fast', version: 'Grok-fast' },
+    
     // Amazon Nova
     { id: 'nova-fast', name: 'Nova Fast', version: 'Amazon-Nova' },
+    
     // Microsoft Phi
     { id: 'phi', name: 'Phi', version: 'Phi-4' },
+    
     // Search/Tool Models
     { id: 'searchgpt', name: 'SearchGPT', version: 'v1' },
+    
     // Creative/Art Models
     { id: 'midijourney', name: 'Midijourney', version: 'v1' },
     { id: 'unity', name: 'Unity', version: 'v1' },
     { id: 'rtist', name: 'Rtist', version: 'v1' },
+    
     // Special/Character Models
     { id: 'evil', name: 'Evil Mode', version: 'Uncensored' },
     { id: 'p1', name: 'P1', version: 'v1' },
     { id: 'hormoz', name: 'Hormoz', version: 'v1' },
     { id: 'sur', name: 'Sur', version: 'v1' },
     { id: 'bidara', name: 'Bidara', version: 'v1' },
+    
     // Education/Utility Models
     { id: 'chickytutor', name: 'ChickyTutor', version: 'Education' },
     { id: 'nomnom', name: 'NomNom', version: 'Food' }
@@ -833,37 +849,63 @@ const POLLINATIONS_MODELS = [
 
 const AI_PROVIDERS = {
     gemini: {
-    name: 'Google Gemini',
-    models: [
-        { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro Preview', version: '3.0-pro' },
-        { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview', version: '3.0-flash' },
-        { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', version: '2.5-pro' },
-        { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', version: '2.5-flash' },
-        { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', version: '2.5-lite' },
-        { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', version: '2.0-flash' },
-        { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite', version: '2.0-lite' },
-        { id: 'gemini-flash-latest', name: 'Gemini Flash Latest', version: 'latest' },
-        { id: 'gemini-pro-latest', name: 'Gemini Pro Latest', version: 'latest' },
-        { id: 'gemma-3-27b-it', name: 'Gemma 3 27B', version: '27B' },
-        { id: 'gemma-3-12b-it', name: 'Gemma 3 12B', version: '12B' },
-        { id: 'gemma-3-4b-it', name: 'Gemma 3 4B', version: '4B' },
-        { id: 'deep-research-pro-preview-12-2025', name: 'Deep Research Pro', version: 'research' }
-    ]
-},
+        name: 'Google Gemini',
+        models: [
+            // GEMINI 3 - MODEL TERBARU (Feb 2026)
+            { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro Preview', version: '3.0-pro' },
+            { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview', version: '3.0-flash' },
+            { id: 'gemini-3-pro', name: 'Gemini 3 Pro', version: '3-pro' }, // TAMBAHAN
+            { id: 'gemini-3-flash', name: 'Gemini 3 Flash', version: '3-flash' }, // TAMBAHAN - default baru
+            
+            // GEMINI 2.5
+            { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', version: '2.5-pro' },
+            { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', version: '2.5-flash' },
+            { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', version: '2.5-lite' },
+            
+            // GEMINI 2.0
+            { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', version: '2.0-flash' },
+            // HAPUS 2.0-flash-lite (deprecated March 31, 2026)
+            
+            // GEMINI LATEST
+            { id: 'gemini-flash-latest', name: 'Gemini Flash Latest', version: 'latest' },
+            { id: 'gemini-pro-latest', name: 'Gemini Pro Latest', version: 'latest' },
+            
+            // GEMMA
+            { id: 'gemma-3-27b-it', name: 'Gemma 3 27B', version: '27B' },
+            { id: 'gemma-3-12b-it', name: 'Gemma 3 12B', version: '12B' },
+            { id: 'gemma-3-4b-it', name: 'Gemma 3 4B', version: '4B' },
+            
+            // SPECIAL
+            { id: 'deep-research-pro-preview-12-2025', name: 'Deep Research Pro', version: 'research' }
+        ]
+    },
 
     groq: {
         name: 'Groq',
         models: [
+            // LLAMA
             { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', version: 'v3.3' },
             { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B', version: 'v3.1' },
-            { id: 'openai/gpt-oss-120b', name: 'GPT OSS 120B', version: '120B' },
-            { id: 'openai/gpt-oss-20b', name: 'GPT OSS 20B', version: '20B' },
-            { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', version: '8x7B' },
-            { id: 'gemma2-9b-it', name: 'Gemma 2 9B', version: '9B' },
             { id: 'meta-llama/llama-4-maverick-17b-128e-instruct', name: 'Llama 4 Maverick', version: '17B-128E' },
             { id: 'meta-llama/llama-4-scout-17b-16e-instruct', name: 'Llama 4 Scout', version: '17B-16E' },
+            
+            // GPT-OSS (BARU - Feb 2026)
+            { id: 'openai/gpt-oss-120b', name: 'GPT OSS 120B', version: '120B' },
+            { id: 'openai/gpt-oss-20b', name: 'GPT OSS 20B', version: '20B' },
+            
+            // MIXTRAL
+            { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', version: '8x7B' },
+            
+            // GEMMA
+            { id: 'gemma2-9b-it', name: 'Gemma 2 9B', version: '9B' },
+            
+            // QWEN
+            { id: 'qwen/qwen3-32b', name: 'Qwen 3 32B', version: '32B' }, // UPDATE
+            
+            // KIMI
             { id: 'moonshotai/kimi-k2-instruct-0905', name: 'Kimi K2', version: 'K2' },
-            { id: 'qwen/qwen-3-32b', name: 'Qwen 3 32B', version: '32B' },
+            
+            // LLAMA TOOL USE
             { id: 'llama-3-groq-70b-tool-use', name: 'Llama 3 70B Tool', version: '70B-tool' },
             { id: 'llama-3-groq-8b-tool-use', name: 'Llama 3 8B Tool', version: '8B-tool' }
         ]
@@ -872,25 +914,60 @@ const AI_PROVIDERS = {
     openrouter: {
         name: 'OpenRouter',
         models: [
-            { id: 'arcee-ai/trinity-large-preview:free', name: 'Trinity Large Preview (free)', version: 'Large' },
+            // TRINITY (BARU)
+            { id: 'arcee-ai/trinity-large-preview:free', name: 'Trinity Large Preview (free)', version: 'Large-400B' },
+            
+            // STEP 3.5
+            { id: 'stepfun/step-3.5-flash:free', name: 'Step 3.5 Flash (free)', version: '3.5-Flash' }, // TAMBAHAN
+            
+            // SOLAR
             { id: 'upstage/solar-pro-3:free', name: 'Solar Pro 3 (free)', version: 'Pro-3' },
+            
+            // LIQUID
             { id: 'liquid/lfm-2.5-1.2b-thinking:free', name: 'LFM2.5-1.2B-Thinking (free)', version: '1.2B' },
             { id: 'liquid/lfm-2.5-1.2b-instruct:free', name: 'LFM2.5-1.2B-Instruct (free)', version: '1.2B' },
+            
+            // MOLMO
             { id: 'allenai/molmo-2-8b:free', name: 'Molmo2 8B (free)', version: '8B' },
+            
+            // DEEPSEEK
             { id: 'tngtech/deepseek-r1t-chimera:free', name: 'R1T Chimera (free)', version: 'R1T' },
-            { id: 'z-ai/glm-4.5-air:free', name: 'GLM 4.5 Air (free)', version: '4.5-Air' },
-            { id: 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free', name: 'Uncensored (free)', version: '24B' },
-            { id: 'google/gemma-3n-e2b-it:free', name: 'Gemma 3n 2B (free)', version: '3n-2B' },
             { id: 'tngtech/deepseek-r1t2-chimera:free', name: 'DeepSeek R1T2 Chimera (free)', version: 'R1T2' },
             { id: 'deepseek/deepseek-r1-0528:free', name: 'R1 0528 (free)', version: '0528' },
+            
+            // GLM
+            { id: 'z-ai/glm-4.5-air:free', name: 'GLM 4.5 Air (free)', version: '4.5-Air' },
+            
+            // UNCENSORED
+            { id: 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free', name: 'Uncensored (free)', version: '24B' },
+            
+            // GEMMA
+            { id: 'google/gemma-3n-e2b-it:free', name: 'Gemma 3n 2B (free)', version: '3n-2B' },
+            
+            // MISTRAL
             { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 3.1 24B (free)', version: '24B' },
+            
+            // GEMINI
             { id: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (free)', version: '2.0-flash' },
+            
+            // LLAMA
             { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B (free)', version: '70B' },
             { id: 'meta-llama/llama-3.1-405b-instruct:free', name: 'Llama 3.1 405B (free)', version: '405B' },
+            
+            // QWEN
             { id: 'qwen/qwen3-coder:free', name: 'Qwen3 Coder (free)', version: 'Coder' },
+            
+            // KIMI
             { id: 'moonshotai/kimi-k2:free', name: 'Kimi K2 (free)', version: 'K2' },
+            
+            // GPT-OSS
             { id: 'openai/gpt-oss-120b:free', name: 'GPT OSS 120B (free)', version: '120B' },
-            { id: 'nousresearch/hermes-3-llama-3.1-405b:free', name: 'Hermes 3 405B (free)', version: '405B' }
+            
+            // HERMES
+            { id: 'nousresearch/hermes-3-llama-3.1-405b:free', name: 'Hermes 3 405B (free)', version: '405B' },
+            
+            // NVIDIA NEMOTRON (TAMBAHAN)
+            { id: 'nvidia/nemotron-nano-9b-v2:free', name: 'Nemotron Nano 9B (free)', version: '9B-v2' }
         ]
     },
 
@@ -4469,4 +4546,3 @@ client.login(CONFIG.token).then(() => {
     if (err.message.includes('DISALLOWED_INTENTS')) console.error('Enable MESSAGE CONTENT INTENT di Developer Portal!');
     process.exit(1);
 });
-
