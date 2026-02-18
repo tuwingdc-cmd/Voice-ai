@@ -1594,29 +1594,129 @@ async function handleHelpCommand(msg) {
             },
             {
                 name: 'Admin Commands',
+async function handleHelpCommand(msg) {
+    const embed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle('🤖 Toing AI Bot - Complete Guide')
+        .setDescription('Asisten AI dengan berbagai kemampuan canggih')
+        .addFields(
+            {
+                name: '💬 Chat AI',
                 value: [
-                    '.settings - Settings panel',
-                    '.manage - API Manager',
-                    '.status - Bot status'
+                    '`.ai <pertanyaan>` - Tanya AI',
+                    '`@Toing <pertanyaan>` - Mention bot',
+                    '`.clear` - Hapus memory'
                 ].join('\n'),
                 inline: false
             },
             {
-                name: 'Info',
+                name: '🔍 Search & Info',
                 value: [
-                    '.ping - Check latency',
-                    '.model - AI models info',
-                    '.help - This help'
+                    '`.search <query>` - Cari di internet',
+                    '`.weather <city>` - Cuaca real-time',
+                    '`.forecast <city>` - Prakiraan 5 hari'
+                ].join('\n'),
+                inline: false
+            },
+            {
+                name: '📄 File & URL',
+                value: [
+                    '`.read` + upload file',
+                    '`.read <url>` - Baca website',
+                    '`.analyze` + upload - Analisis detail'
+                ].join('\n'),
+                inline: false
+            },
+            {
+                name: '🎥 YouTube',
+                value: [
+                    '`.youtube <url>` - Analisis video',
+                    'Auto extract transcript',
+                    'Summary + timestamps'
+                ].join('\n'),
+                inline: false
+            },
+            {
+                name: '💻 Code Execution',
+                value: [
+                    '`.run <language>`',
+                    '```python',
+                    'print("Hello")',
+                    '```',
+                    '`.languages` - List bahasa'
+                ].join('\n'),
+                inline: false
+            },
+            {
+                name: '📥 Social Media Downloader',
+                value: [
+                    '`.download <url>` - Download tanpa watermark',
+                    'Support: TikTok, Instagram, Twitter/X, Facebook'
+                ].join('\n'),
+                inline: false
+            },
+            {
+                name: '⏰ Alarm & Reminders',
+                value: [
+                    '`.alarm set "jam 4 pagi" "Sahur!"` - Set alarm',
+                    '`.alarm list` - List alarms',
+                    '`.alarm delete <id>` - Hapus alarm',
+                    'Bot bisa masuk voice untuk bangunin!'
+                ].join('\n'),
+                inline: false
+            },
+            {
+                name: '🎙️ Voice AI (Podcast Mode)',
+                value: [
+                    '`.voiceai on` - Aktivasi mode podcast',
+                    'Bot akan dengar & jawab otomatis',
+                    '`.voiceai off` - Matikan'
+                ].join('\n'),
+                inline: false
+            },
+            {
+                name: '🔊 Voice Commands',
+                value: [
+                    '`.speak <text>` - TTS',
+                    '`.join` / `.leave` - Voice channel',
+                    '`.stop` - Stop audio'
+                ].join('\n'),
+                inline: false
+            },
+            {
+                name: '💾 Database',
+                value: [
+                    '`.remember <key> <value>` - Simpan preferensi',
+                    '`.recall` - Lihat preferensi tersimpan'
+                ].join('\n'),
+                inline: false
+            },
+            {
+                name: '🚀 DevOps (Admin)',
+                value: [
+                    '`.render list/status/deploy/logs`',
+                    '`.github repos/fork/create`',
+                    '`.settings` - Bot settings',
+                    '`.manage` - API Manager'
+                ].join('\n'),
+                inline: false
+            },
+            {
+                name: 'ℹ️ Info',
+                value: [
+                    '`.ping` - Latency',
+                    '`.status` - Bot status',
+                    '`.model` - AI models',
+                    '`.help` - Bantuan ini'
                 ].join('\n'),
                 inline: false
             }
         )
-        .setFooter({ text: 'Toing AI Bot v3.0.0' })
+        .setFooter({ text: 'Toing AI Bot v3.5.0 - Complete Edition + Advanced Skills' })
         .setTimestamp();
     
     await msg.reply({ embeds: [embed] });
-}
-
+            }
 async function handleModelInfoCommand(msg) {
     const settings = getSettings(msg.guild.id);
     const currentProvider = AI_PROVIDERS[settings.aiProvider];
