@@ -1,22 +1,23 @@
 {
   "name": "toing-discord-bot",
-  "version": "3.2.0",
-  "description": "Discord AI Bot with Voice AI, ScraperAPI Proxy, Multi-TTS",
+  "version": "3.5.0",
+  "description": "Discord AI Bot - Complete Edition with Advanced Skills",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "test": "echo \"No tests\" && exit 0",
-    "clean": "rm -rf temp/* logs/*"
+    "clean": "rm -rf temp/* logs/* data/*.json"
   },
   "keywords": [
     "discord",
     "bot",
     "ai",
     "voice",
-    "elevenlabs",
-    "proxy",
-    "tts"
+    "tts",
+    "downloader",
+    "scraper",
+    "automation"
   ],
   "author": "",
   "license": "MIT",
@@ -35,7 +36,11 @@
     "pdf-parse": "^1.1.1",
     "prism-media": "^1.3.5",
     "sodium-native": "^4.2.1",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    
+    "node-cron": "^3.0.3",
+    "pg": "^8.11.3",
+    "puppeteer": "^21.6.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
