@@ -1,5 +1,5 @@
 {
-  "name": "Aria",
+  "name": "aria-bot",
   "version": "3.5.0",
   "description": "Discord AI Bot - Complete Edition with Advanced Skills",
   "main": "src/index.js",
