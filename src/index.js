@@ -1,74 +1,129 @@
-// ============================================================
-//         DISCORD AI BOT v3.0 - COMPLETE EDITION
-//         All Features: AI, Voice, Search, URL, File, Image
-// ===========================================================
+// src/index.js
 
 // ============================================================
-//       
+//         DISCORD AI BOT v3.0 - MAIN ENTRY POINT
+// ============================================================
+
+const { createServer } = require('http');
 const {
     Client,
     GatewayIntentBits,
-    Partials,  // <-- TAMBAH INI
-    EmbedBuilder,
-    ActionRowBuilder,
-    StringSelectMenuBuilder,
-    ButtonBuilder,
-    ButtonStyle,
+    Partials,
     ActivityType,
     Events
 } = require('discord.js');
 
-const {
-    joinVoiceChannel,
-    createAudioPlayer,
-    createAudioResource,
-    AudioPlayerStatus,
-    VoiceConnectionStatus,
-    entersState,
-    getVoiceConnection,
-    StreamType
-} = require('@discordjs/voice');
+const { getVoiceConnection } = require('@discordjs/voice');
 
-const { exec } = require('child_process');
-const { createServer } = require('http');
-const https = require('https');
-const fs = require('fs');
-const path = require('path');
-const cheerio = require('cheerio');
-const fetch = require('node-fetch');
-const FormData = require('form-data');
-const { HttpsProxyAgent } = require('https-proxy-agent');
-const { EndBehaviorType } = require('@discordjs/voice');
-const prism = require('prism-media');
-const pdfParse = require('pdf-parse');
-const mammoth = require('mammoth');
-const xlsx = require('xlsx');
+// ============================================================
+//         IMPORT MODULES
+// ============================================================
+
+const { BOT_CONFIG, AI_PROVIDERS } = require('./core/botConfig');
+
+const {
+    // Storage Maps
+    guildSettings,
+    voiceConnections,
+    audioPlayers,
+    ttsQueues,
+    conversations,
+    
+    // Constants
+    SUPPORTED_FILE_EXTENSIONS,
+    
+    // Basic Utilities
+    ensureTempDir,
+    cleanupFile,
+    splitMessage,
+    isAdmin,
+    checkRateLimit,
+    
+    // Settings Management
+    getSettings,
+    updateSettings,
+    
+    // Conversation Memory
+    clearConversation,
+    cleanupOldConversations,
+    
+    // URL & File Detection
+    detectURLs,
+    shouldAutoFetch,
+    isMediaFile,
+    isShortener
+} = require('./core/botUtils');
+
+const {
+    // Voice Functions
+    joinUserVoiceChannel,
+    leaveVoiceChannel,
+    playTTSInVoice,
+    
+    // Voice AI
+    enableVoiceAI,
+    disableVoiceAI,
+    isVoiceAIEnabled,
+    
+    // Settings UI
+    createSettingsEmbed,
+    createProviderMenu,
+    createModelMenu,
+    createVoiceMenu,
+    createElevenlabsVoiceMenu,
+    createModeButtons,
+    
+    // Command Handlers
+    handleAI,
+    handleSpeak,
+    handleFileReadWithQuery,
+    handleImageAnalysisWithQuery,
+    handleURLAnalysis,
+    handleSearchCommand,
+    handleReadCommand,
+    handleAnalyzeCommand,
+    handleStatusCommand,
+    handleHelpCommand,
+    handleModelInfoCommand
+} = require('./core/botHandlers');
+
+// ============================================================
+//         EXTERNAL MODULES (existing)
+// ============================================================
 
 const DynamicManager = require('./modules/dynamicManager');
-const { generateMiniMaxTTS, isMiniMaxVoice, MINIMAX_VOICES } = require('./modules/minimax-tts');
-const { resolveURL } = require('./modules/url-resolver');
-
-// ============================================================
-//         RENDER & GITHUB INTEGRATION (NEW)
-// ============================================================
 const RenderAPI = require('./modules/renderAPI');
 const GitHubAPI = require('./modules/githubAPI');
 const WebhookServer = require('./modules/webhookServer');
 const renderCommands = require('./commands/renderCommands');
 const githubCommands = require('./commands/githubCommands');
 
-// ==================== HEALTH SERVER ====================
+// ============================================================
+//         INITIALIZATION
+// ============================================================
 
 const startTime = Date.now();
+const manager = new DynamicManager(process.env.REDIS_URL, BOT_CONFIG.adminIds);
+
+let renderAPI = null;
+let githubAPI = null;
+let webhookHandler = null;
+
+if (BOT_CONFIG.renderApiKey && BOT_CONFIG.renderOwnerId) {
+    renderAPI = new RenderAPI(BOT_CONFIG.renderApiKey, BOT_CONFIG.renderOwnerId);
+    console.log('Render API initialized');
+}
+
+if (BOT_CONFIG.githubToken) {
+    githubAPI = new GitHubAPI(BOT_CONFIG.githubToken);
+    console.log('GitHub API initialized');
+}
 
 // ============================================================
-//         HEALTH SERVER + WEBHOOK HANDLER (UPGRADED)
+//         HEALTH SERVER
 // ============================================================
-
-let webhookHandler = null; // Will be initialized after client ready
 
 const healthServer = createServer(async (req, res) => {
-    // Collect body for POST requests
     let body = '';
     
     if (req.method === 'POST') {
@@ -77,7 +132,6 @@ const healthServer = createServer(async (req, res) => {
         }
     }
     
-    // ===== WEBHOOK ENDPOINTS =====
     if (req.url.startsWith('/webhook/') && req.method === 'POST') {
         if (webhookHandler) {
             await webhookHandler.handleRequest(req, res, body);
@@ -88,7 +142,6 @@ const healthServer = createServer(async (req, res) => {
         return;
     }
     
-    // ===== HEALTH CHECK ENDPOINT =====
     const status = {
         status: 'ok',
         bot: client?.user?.tag || 'starting...',
@@ -102,14 +155,9 @@ const healthServer = createServer(async (req, res) => {
             urlReading: true,
             fileReading: true,
             imageAnalysis: true,
-            // NEW FEATURES
-            renderAPI: !!CONFIG.renderApiKey,
-            githubAPI: !!CONFIG.githubToken,
-            webhooks: !!CONFIG.webhookSecret
-        },
-        webhookEndpoints: {
-            render: '/webhook/render',
-            github: '/webhook/github'
+            renderAPI: !!BOT_CONFIG.renderApiKey,
+            githubAPI: !!BOT_CONFIG.githubToken,
+            webhooks: !!BOT_CONFIG.webhookSecret
         }
     };
     
@@ -117,964 +165,13 @@ const healthServer = createServer(async (req, res) => {
     res.end(JSON.stringify(status, null, 2));
 });
 
-healthServer.listen(process.env.PORT || 3000, () => console.log('🌐 Health server ready'));
+healthServer.listen(process.env.PORT || 3000, () => {
+    console.log('Health server ready');
+});
 
-// ==================== CONFIGURATION ====================
-
-const CONFIG = {
-    token: process.env.DISCORD_TOKEN,
-    prefix: '.',
-    adminIds: (process.env.ADMIN_IDS || '').split(',').filter(Boolean),
-        // --- TAMBAHAN BARU ---
-    puterTTS: {
-        apiUrl: 'https://puter-tts-api.onrender.com',
-        voiceId: 'gmnazjXOFoOcWA59sd5m',
-        enabled: false
-    },
-    // ---------------------
-    tempPath: './temp',
-    tavilyApiKey: process.env.TAVILY_API_KEY,
-    serperApiKey: process.env.SERPER_API_KEY,
-    geminiApiKey: process.env.GEMINI_API_KEY,
-    groqApiKey: process.env.GROQ_API_KEY,
-    openrouterApiKey: process.env.OPENROUTER_API_KEY,
-    huggingfaceApiKey: process.env.HUGGINGFACE_API_KEY,
-    pollinationsApiKey: process.env.POLLINATIONS_API_KEY,
-    // ============================================================
-    //         RENDER & GITHUB CONFIG (NEW)
-    // ============================================================
-    renderApiKey: process.env.RENDER_API_KEY,
-    renderOwnerId: process.env.RENDER_OWNER_ID,
-    githubToken: process.env.GITHUB_TOKEN,
-    webhookSecret: process.env.WEBHOOK_SECRET,
-    notificationChannelId: process.env.NOTIFICATION_CHANNEL_ID,
-    
-    maxConversationMessages: 100,
-    maxConversationAge: 7200000,
-    rateLimitWindow: 60000,
-    rateLimitMax: 30,
-    voiceInactivityTimeout: 300000,
-    maxFileSize: 10 * 1024 * 1024,
-    maxImageSize: 5 * 1024 * 1024,
-        // ElevenLabs TTS Settings (Admin Only)
-        // ElevenLabs TTS Settings (Admin Only + Proxy)
-        minimax: {
-        apiKey: process.env.MINIMAX_API_KEY,
-        defaultVoiceId: process.env.MINIMAX_VOICE_ID,
-        adminOnly: true
-    },
-    // Voice AI Settings
-        voiceAI: {
-        enabled: true,
-        whisperModel: 'whisper-large-v3-turbo',
-        maxRecordingDuration: 30000,
-        silenceDuration: 2000,
-        minAudioLength: 500,
-        supportedLanguages: ['id', 'en']
-    }
-}; 
-
-// Pastikan ada titik koma dan kurung tutup di sini
-// Initialize Dynamic Manager
-const manager = new DynamicManager(process.env.REDIS_URL, CONFIG.adminIds);
 // ============================================================
-//         INITIALIZE RENDER & GITHUB APIs (NEW)
+//         DISCORD CLIENT
 // ============================================================
-
-let renderAPI = null;
-let githubAPI = null;
-
-if (CONFIG.renderApiKey && CONFIG.renderOwnerId) {
-    renderAPI = new RenderAPI(CONFIG.renderApiKey, CONFIG.renderOwnerId);
-    console.log('✅ Render API initialized');
-} else {
-    console.warn('⚠️ Render API keys not set (RENDER_API_KEY, RENDER_OWNER_ID)');
-}
-
-if (CONFIG.githubToken) {
-    githubAPI = new GitHubAPI(CONFIG.githubToken);
-    console.log('✅ GitHub API initialized');
-} else {
-    console.warn('⚠️ GitHub token not set (GITHUB_TOKEN)');
-}
-
-// ==================== RATE LIMITER ====================
-
-const rateLimits = new Map();
-
-function checkRateLimit(userId) {
-    const now = Date.now();
-    const userLimit = rateLimits.get(userId);
-    if (!userLimit || now > userLimit.resetAt) {
-        rateLimits.set(userId, { count: 1, resetAt: now + CONFIG.rateLimitWindow });
-        return { allowed: true, remaining: CONFIG.rateLimitMax - 1 };
-    }
-    if (userLimit.count >= CONFIG.rateLimitMax) {
-        return { allowed: false, waitTime: Math.ceil((userLimit.resetAt - now) / 1000) };
-    }
-    userLimit.count++;
-    return { allowed: true, remaining: CONFIG.rateLimitMax - userLimit.count };
-}
-
-// ==================== SEARCH TRIGGERS ====================
-
-const SEARCH_TRIGGERS = [
-    'berita', 'news', 'kabar', 'terbaru', 'hari ini', 'sekarang',
-    'latest', 'current', 'today', 'recent', 'update', 'breaking',
-    'terkini', 'baru saja', 'barusan', 'kemarin', 'minggu ini',
-    '2024', '2025', '2026', '2027', '2028', '2029', '2030',
-    'tahun ini', 'tahun lalu', 'tahun depan', 'kapan', 'jadwal',
-    'harga', 'price', 'kurs', 'nilai tukar', 'saham', 'stock',
-    'crypto', 'bitcoin', 'dollar', 'rupiah', 'biaya', 'tarif',
-    'gaji', 'harga emas', 'ihsg',
-    'cuaca', 'weather', 'hujan', 'gempa', 'banjir', 'suhu',
-    'prakiraan', 'forecast',
-    'siapa', 'who is', 'siapa presiden', 'siapa menteri',
-    'profil', 'biodata', 'umur', 'meninggal',
-    'trending', 'viral', 'populer', 'hits', 'fyp', 'gosip',
-    'heboh', 'ramai', 'hot topic',
-    'skor', 'score', 'hasil pertandingan', 'klasemen',
-    'liga', 'piala dunia', 'final', 'motogp', 'f1',
-    'rilis', 'release', 'launching', 'spesifikasi', 'spec',
-    'review', 'fitur terbaru', 'update software'
-];
-
-// ==================== URL & FILE DETECTION ====================
-
-function detectURLs(message) {
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    const urls = message.match(urlRegex) || [];
-    return urls.filter(url => {
-        const lower = url.toLowerCase();
-        
-        // Abaikan YouTube URLs (biarkan bot musik yang handle)
-        if (lower.includes('youtube.com') || lower.includes('youtu.be')) {
-            return false;
-        }
-        
-        if (lower.match(/\.(jpg|jpeg|png|gif|mp4|mp3|zip|exe)$/i)) {
-            return false;
-        }
-        if (lower.match(/bit\.ly|tinyurl|t\.co/)) {
-            return false;
-        }
-        return true;
-    });
-}
-
-function shouldAutoFetch(url) {
-    const domain = new URL(url).hostname;
-    const autoFetchDomains = [
-        'github.com', 'stackoverflow.com', 'medium.com', 'dev.to',
-        'docs.google.com', 'ai.google.dev', 'openai.com',
-        'discord.js.org', 'npmjs.com', 'wikipedia.org',
-        'youtube.com', 'youtu.be'
-    ];
-    return autoFetchDomains.some(d => domain.includes(d));
-}
-
-function isMediaFile(url) {
-    // Jangan block YouTube URLs
-    if (url.includes('youtube.com') || url.includes('youtu.be')) return false;
-    return /\.(jpg|jpeg|png|gif|mp4|mp3|avi|mov|zip|rar)$/i.test(url);
-}
-
-function isShortener(url) {
-    const shorteners = ['bit.ly', 'tinyurl.com', 't.co', 'goo.gl', 'short.link'];
-    return shorteners.some(s => url.includes(s));
-}
-
-// ==================== WEB SCRAPING FUNCTIONS ====================
-
-async function fetchURLClean(url) {
-    try {
-        const response = await fetch(url, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.9'
-            },
-            timeout: 15000
-        });
-        
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        
-        const html = await response.text();
-        const $ = cheerio.load(html);
-        
-        // Remove unwanted elements
-        $('script').remove();
-        $('style').remove();
-        $('iframe').remove();
-        $('noscript').remove();
-        $('nav').remove();
-        $('header').remove();
-        $('footer').remove();
-        $('aside').remove();
-        $('.ad, .ads, .advertisement').remove();
-        $('.banner, .promo, .promotion').remove();
-        $('.sidebar, .widget, .related').remove();
-        $('.comments, .comment-section').remove();
-        $('.share, .social-share').remove();
-        $('#ad, #ads, #advertisement').remove();
-        $('[class*="advertisement"]').remove();
-        $('[id*="google_ads"]').remove();
-        $('img[width="1"]').remove();
-        $('img[height="1"]').remove();
-        
-        // Extract main content
-        let mainContent = '';
-        
-        if ($('article').length) {
-            mainContent = $('article').first().text();
-        } else if ($('main').length) {
-            mainContent = $('main').first().text();
-        } else if ($('.post-content, .entry-content, .article-body, .content').length) {
-            mainContent = $('.post-content, .entry-content, .article-body, .content').first().text();
-        } else {
-            mainContent = $('body').text();
-        }
-        
-        // Clean whitespace
-        mainContent = mainContent.replace(/\s+/g, ' ').replace(/\n\s*\n/g, '\n').trim();
-        
-        return mainContent.slice(0, 8000);
-        
-    } catch (error) {
-        console.error('Error fetching URL:', url, error.message);
-        throw error;
-    }
-}
-
-async function readGitHubFile(url) {
-    try {
-        const rawUrl = url.replace('github.com', 'raw.githubusercontent.com').replace('/blob/', '/');
-        const response = await fetch(rawUrl);
-        if (!response.ok) throw new Error('File not found');
-        return await response.text();
-    } catch (error) {
-        throw new Error('Failed to read GitHub file');
-    }
-}
-
-// ==================== FILE READING FUNCTIONS ====================
-
-async function readTextFile(buffer) {
-    return buffer.toString('utf-8');
-}
-
-async function readPDFFile(buffer) {
-    try {
-        const data = await pdfParse(buffer);
-        return data.text;
-    } catch (error) {
-        throw new Error('Failed to read PDF');
-    }
-}
-
-async function readDOCXFile(buffer) {
-    try {
-        const result = await mammoth.extractRawText({ buffer });
-        return result.value;
-    } catch (error) {
-        throw new Error('Failed to read DOCX');
-    }
-}
-
-async function readExcelFile(buffer) {
-    try {
-        const workbook = xlsx.read(buffer, { type: 'buffer' });
-        let text = '';
-        workbook.SheetNames.forEach(sheetName => {
-            const sheet = workbook.Sheets[sheetName];
-            text += `Sheet: ${sheetName}\n`;
-            text += xlsx.utils.sheet_to_txt(sheet) + '\n\n';
-        });
-        return text;
-    } catch (error) {
-        throw new Error('Failed to read Excel file');
-    }
-}
-
-async function readFile(attachment) {
-    const response = await fetch(attachment.url);
-    const buffer = await response.buffer();
-    
-    const ext = path.extname(attachment.name).toLowerCase();
-    
-    switch (ext) {
-        case '.txt':
-        case '.js':
-        case '.py':
-        case '.json':
-        case '.md':
-        case '.yml':
-        case '.yaml':
-        case '.xml':
-        case '.html':
-        case '.css':
-        case '.cpp':
-        case '.c':
-        case '.java':
-        case '.ts':
-        case '.tsx':
-        case '.jsx':
-            return await readTextFile(buffer);
-        case '.pdf':
-            return await readPDFFile(buffer);
-        case '.docx':
-        case '.doc':
-            return await readDOCXFile(buffer);
-        case '.xlsx':
-        case '.xls':
-        case '.csv':
-            return await readExcelFile(buffer);
-        default:
-            throw new Error(`Unsupported file type: ${ext}`);
-    }
-}
-
-// ==================== IMAGE ANALYSIS ====================
-
-async function analyzeImage(imageUrl, prompt = '') {
-    const apiKey = await manager.getActiveKey('gemini', CONFIG.geminiApiKey);
-    if (!apiKey) throw new Error('No Gemini API key for image analysis');
-    
-    // Fetch image as base64
-    const imageResponse = await fetch(imageUrl);
-    const buffer = await imageResponse.buffer();
-    const base64 = buffer.toString('base64');
-    
-    const requestBody = {
-        contents: [{
-            parts: [
-                {
-                    inline_data: {
-                        mime_type: imageResponse.headers.get('content-type') || 'image/jpeg',
-                        data: base64
-                    }
-                },
-                {
-                    text: prompt || 'Jelaskan gambar ini dalam Bahasa Indonesia dengan detail.'
-                }
-            ]
-        }],
-        generationConfig: {
-            temperature: 0.7,
-            topP: 0.95,
-            topK: 40,
-            maxOutputTokens: 2048
-        }
-    };
-    
-    const { data, statusCode } = await httpRequest({
-        hostname: 'generativelanguage.googleapis.com',
-        path: `/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-    }, JSON.stringify(requestBody));
-    
-    if (statusCode !== 200) {
-        const result = JSON.parse(data);
-        throw new Error(result.error?.message || `HTTP ${statusCode}`);
-    }
-    
-    const result = JSON.parse(data);
-    if (result.candidates?.[0]?.content?.parts?.[0]?.text) {
-        return result.candidates[0].content.parts[0].text;
-    }
-    throw new Error('No response from Gemini Vision');
-}
-
-// ==================== SEARCH FUNCTIONS ====================
-
-function shouldSearch(message) {
-    const lower = message.toLowerCase();
-    return SEARCH_TRIGGERS.some(trigger => lower.includes(trigger));
-}
-
-async function searchSerper(query) {
-    if (!CONFIG.serperApiKey) return null;
-    return new Promise((resolve) => {
-        const postData = JSON.stringify({ q: query, gl: 'id', hl: 'id', num: 5 });
-        const req = https.request({
-            hostname: 'google.serper.dev',
-            path: '/search',
-            method: 'POST',
-            headers: { 'X-API-KEY': CONFIG.serperApiKey, 'Content-Type': 'application/json' },
-            timeout: 15000
-        }, (res) => {
-            let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => {
-                try { 
-                    if (res.statusCode === 200) {
-                        const result = JSON.parse(data);
-                        // Extract URLs from organic results
-                        const urls = result.organic?.slice(0, 3).map(r => r.link).filter(Boolean) || [];
-                        resolve({ ...result, urls });
-                    } else {
-                        resolve(null);
-                    }
-                } catch { resolve(null); }
-            });
-        });
-        req.on('error', () => resolve(null));
-        req.on('timeout', () => { req.destroy(); resolve(null); });
-        req.write(postData);
-        req.end();
-    });
-}
-
-async function searchTavily(query) {
-    if (!CONFIG.tavilyApiKey) return null;
-    return new Promise((resolve) => {
-        const postData = JSON.stringify({ 
-            api_key: CONFIG.tavilyApiKey, 
-            query, 
-            include_answer: true, 
-            max_results: 5 
-        });
-        const req = https.request({
-            hostname: 'api.tavily.com',
-            path: '/search',
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            timeout: 15000
-        }, (res) => {
-            let data = '';
-            res.on('data', chunk => data += chunk);
-            res.on('end', () => {
-                try { 
-                    if (res.statusCode === 200) {
-                        const result = JSON.parse(data);
-                        // Extract URLs from results
-                        const urls = result.results?.slice(0, 3).map(r => r.url).filter(Boolean) || [];
-                        resolve({ ...result, urls });
-                    } else {
-                        resolve(null);
-                    }
-                } catch { resolve(null); }
-            });
-        });
-        req.on('error', () => resolve(null));
-        req.on('timeout', () => { req.destroy(); resolve(null); });
-        req.write(postData);
-        req.end();
-    });
-}
-
-async function performSearch(query, provider = 'auto') {
-    const now = new Date().toLocaleDateString('id-ID', { dateStyle: 'full', timeZone: 'Asia/Jakarta' });
-    let result = { timestamp: now, answer: null, facts: [], urls: [], source: null };
-    
-    if (provider === 'serper' || provider === 'auto') {
-        const serper = await searchSerper(query);
-        if (serper) {
-            result.source = 'serper';
-            result.urls = serper.urls || [];
-            if (serper.answerBox) result.answer = serper.answerBox.answer || serper.answerBox.snippet;
-            if (serper.organic) result.facts = serper.organic.slice(0, 3).map(o => o.snippet).filter(Boolean);
-            if (result.answer || result.facts.length || result.urls.length) return result;
-        }
-    }
-    
-    if (provider === 'tavily' || provider === 'auto') {
-        const tavily = await searchTavily(query);
-        if (tavily) {
-            result.source = 'tavily';
-            result.urls = tavily.urls || [];
-            if (tavily.answer) result.answer = tavily.answer;
-            if (tavily.results) result.facts = tavily.results.slice(0, 3).map(r => r.content?.slice(0, 200)).filter(Boolean);
-            if (result.answer || result.facts.length || result.urls.length) return result;
-        }
-    }
-    
-    return null;
-}
-
-// ==================== REASONING FUNCTIONS ====================
-
-function parseThinkingResponse(text) {
-    let thinking = '';
-    let answer = text;
-    
-    // Pattern untuk extract [THINKING]...[/THINKING]
-    const thinkingMatch = text.match(/\[THINKING\]([\s\S]*?)\[\/THINKING\]/i);
-    if (thinkingMatch) {
-        thinking = thinkingMatch[1].trim();
-        answer = text.replace(thinkingMatch[0], '').trim();
-    }
-    
-    // Pattern untuk extract [ANSWER]...[/ANSWER]
-    const answerMatch = answer.match(/\[ANSWER\]([\s\S]*?)\[\/ANSWER\]/i);
-    if (answerMatch) {
-        answer = answerMatch[1].trim();
-    }
-    
-    // Bersihkan semua tag dan placeholder
-    answer = answer
-        // Remove thinking blocks
-        .replace(/\[THINKING\][\s\S]*?\[\/THINKING\]/gi, '')
-        // Remove answer tags
-        .replace(/\[ANSWER\]/gi, '')
-        .replace(/\[\/ANSWER\]/gi, '')
-        // Remove placeholder text
-        .replace(/<reasoning process.*?>/gi, '')
-        .replace(/<jawaban.*?>/gi, '')
-        .replace(/<.*?step.*?>/gi, '')
-        // Remove instruction tags
-        .replace(/\[ANALYSIS TASK\][\s\S]*?(?=\n\n|\[)/gi, '')
-        .replace(/\[TASK\][\s\S]*?(?=\n\n|\[)/gi, '')
-        .replace(/\[REASONING PROCESS.*?\][\s\S]*?(?=\n\n\[|\[SOURCE)/gi, '')
-        .replace(/\[USER REQUEST\][\s\S]*?(?=\n\n|\[)/gi, '')
-        .replace(/\[CURRENT DATE:.*?\]/gi, '')
-        .replace(/\[SOURCES.*?\][\s\S]*?(?=\n\n\n|\[ANSWER)/gi, '')
-        .replace(/\[ANALYSIS GUIDELINES\][\s\S]*/gi, '')
-        // Remove decorative lines
-        .replace(/━+/g, '')
-        .replace(/─+/g, '')
-        // Clean whitespace
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
-    
-    // Jika answer kosong atau hanya placeholder, kembalikan text asli yang dibersihkan
-    if (!answer || answer.length < 50 || answer.includes('<') && answer.includes('>')) {
-        // Fallback: ambil semua text yang bukan dalam brackets
-        answer = text
-            .replace(/\[[\s\S]*?\]/g, '')
-            .replace(/<[\s\S]*?>/g, '')
-            .replace(/━+/g, '')
-            .replace(/\n{3,}/g, '\n\n')
-            .trim();
-    }
-    
-    return { thinking, answer };
-}
-
-function buildContextPrompt(query, contents, isThinking = true) {
-    const timestamp = new Date().toLocaleDateString('id-ID', { 
-        dateStyle: 'full', 
-        timeZone: 'Asia/Jakarta' 
-    });
-    
-    let prompt = `${SYSTEM_PROMPT}
-
-[CURRENT DATE: ${timestamp}]
-
-[INSTRUCTION]
-You will receive content from multiple sources. Analyze them carefully and answer the user's question in Bahasa Indonesia.
-`;
-
-    if (isThinking) {
-        prompt += `
-THINK STEP BY STEP:
-1. Identify key information from each source
-2. Cross-reference facts across sources
-3. Determine most reliable information
-4. Formulate comprehensive answer
-
-Format your response as:
-[THINKING]
-Your step-by-step reasoning here...
-[/THINKING]
-
-[ANSWER]
-Your final answer here...
-[/ANSWER]
-`;
-    }
-
-    prompt += '\n[SOURCES]\n';
-    
-    contents.forEach((c, i) => {
-        prompt += `\n--- Source ${i + 1}: ${c.url || c.name || 'Unknown'} ---\n${c.content || c.text}\n`;
-    });
-    
-    prompt += `\n[USER QUESTION]\n${query}`;
-    
-    return prompt;
-}
-
-// ==================== SYSTEM PROMPT ====================
-
-const SYSTEM_PROMPT = `Kamu adalah Toing, asisten AI premium yang elegan, cerdas, dan profesional.
-
-## IDENTITAS
-- Nama: Toing
-- Kepribadian: Hangat, cerdas, humoris namun tetap profesional
-- Gaya bicara: Santai tapi berkelas, seperti teman pintar yang menyenangkan
-
-## KEMAMPUAN KHUSUS
-- Bisa membaca dan analisis URL/website
-- Bisa membaca file dokumen (PDF, Word, Excel, dll)
-- Bisa analisis gambar dan foto
-- Bisa search internet untuk informasi terkini
-- Bisa generate voice/TTS
-
-## PRINSIP UTAMA
-
-### 1. KEJUJURAN ABSOLUT
-- JANGAN PERNAH mengarang fakta atau informasi
-- Jika tidak tahu, katakan dengan jujur
-- Bedakan dengan jelas antara FAKTA, OPINI, dan SPEKULASI
-- Sebutkan jika informasi mungkin sudah tidak update
-- Tidak halusinasi dan mengingat komunikasi dari awal sampai akhir
-- Selalu konsisten dengan pengetahuan coding nya kecuali user meminta di rubah
-
-### 2. WAWASAN LUAS
-- Berikan jawaban yang mendalam dan komprehensif
-- Sertakan konteks yang relevan
-- Hubungkan topik dengan pengetahuan terkait jika membantu
-- Gunakan analogi sederhana untuk menjelaskan konsep kompleks
-
-### 3. KEJELASAN & STRUKTUR
-- Gunakan format yang rapi untuk informasi kompleks
-- Prioritaskan informasi paling penting di awal
-- Hindari jargon kecuali diperlukan
-- Sesuaikan panjang jawaban dengan kompleksitas pertanyaan
-
-### 4. PROFESIONAL TAPI MENYENANGKAN
-- Gunakan bahasa Indonesia & Inggris yang baik dan natural
-- Boleh sisipkan humor ringan yang relevan
-- Gunakan emoji secukupnya untuk menambah ekspresi
-- Tetap sopan dan respectful dalam semua situasi
-
-## PANDUAN RESPONS
-
-### Untuk Pertanyaan Faktual:
-- Berikan jawaban akurat dan terverifikasi
-- Sertakan sumber atau dasar informasi jika relevan
-- Akui keterbatasan jika topik di luar jangkauan pengetahuan
-
-### Untuk Analisis File/Gambar:
-- Jelaskan dengan detail apa yang dilihat/dibaca
-- Berikan insight yang berguna
-- Tawarkan saran atau rekomendasi jika relevan
-
-### Untuk Voice Response:
-- Jawab ringkas dalam 2-4 kalimat
-- Langsung ke poin utama
-- Gunakan bahasa yang mudah dipahami saat didengar
-
-Ingat: Lebih baik jujur tidak tahu daripada memberikan informasi yang salah.`;
-// ==================== POLLINATIONS MODELS (SHARED) ====================
-
-const POLLINATIONS_MODELS = [
-    // OpenAI Models - PERLU UPDATE
-    { id: 'openai', name: 'OpenAI GPT', version: 'GPT-5.2' }, // GPT-5-nano tidak ditemukan
-    { id: 'openai-fast', name: 'OpenAI Fast', version: 'GPT-5.2-fast' },
-    { id: 'openai-large', name: 'OpenAI Large', version: 'GPT-5.3-Codex' }, // Model terbaru Feb 2026
-    { id: 'openai-reasoning', name: 'OpenAI Reasoning', version: 'o4-mini' }, // o3-mini sudah diganti o4
-    { id: 'openai-audio', name: 'OpenAI Audio', version: 'GPT-4o-audio' },
-    
-    // Claude Models - PERLU UPDATE
-    { id: 'claude', name: 'Claude', version: 'Claude-3.5' },
-    { id: 'claude-fast', name: 'Claude Fast', version: 'Claude-fast' },
-    { id: 'claude-large', name: 'Claude Large', version: 'Claude-large' },
-    { id: 'claude-haiku', name: 'Claude Haiku', version: 'Haiku-4' }, // Haiku-4.5 belum tersedia
-    { id: 'claude-sonnet', name: 'Claude Sonnet', version: 'Sonnet-4' }, // Sonnet-4.5 belum tersedia
-    { id: 'claude-opus', name: 'Claude Opus', version: 'Opus-4.6' }, // Update terbaru Feb 2026
-    
-    // Gemini Models - PERLU UPDATE BESAR
-    { id: 'gemini', name: 'Gemini', version: 'Gemini-3-Flash' }, // Update ke Gemini 3
-    { id: 'gemini-fast', name: 'Gemini Fast', version: 'Gemini-3-Flash' },
-    { id: 'gemini-large', name: 'Gemini Large', version: 'Gemini-3-Pro' },
-    { id: 'gemini-search', name: 'Gemini Search', version: 'Gemini-search' },
-    { id: 'gemini-legacy', name: 'Gemini Legacy', version: 'Gemini-2.5-Pro' }, // 2.5 masih ada
-    { id: 'gemini-thinking', name: 'Gemini Deep Think', version: 'Deep-Think' }, // Nama yang benar
-    
-    // DeepSeek Models
-    { id: 'deepseek', name: 'DeepSeek', version: 'V3' },
-    { id: 'deepseek-v3', name: 'DeepSeek V3', version: 'V3.2' }, // Update ke V3.2
-    { id: 'deepseek-r1', name: 'DeepSeek R1', version: 'R1' },
-    { id: 'deepseek-reasoning', name: 'DeepSeek Reasoning', version: 'R1-Reasoner' },
-    
-    // Qwen Models
-    { id: 'qwen', name: 'Qwen', version: 'Qwen3-32B' }, // Update spesifik
-    { id: 'qwen-coder', name: 'Qwen Coder', version: 'Qwen3-Coder' },
-    
-    // Llama Models
-    { id: 'llama', name: 'Llama', version: 'Llama-3.3-70B' }, // Spesifik
-    { id: 'llama-4', name: 'Llama 4', version: 'Llama-4-Scout' }, // TAMBAHAN model baru
-    { id: 'llamalight', name: 'Llama Light', version: 'Llama-70B' },
-    
-    // Mistral Models
-    { id: 'mistral', name: 'Mistral', version: 'Mistral-Small-3.1' },
-    { id: 'mistral-small', name: 'Mistral Small', version: 'Mistral-3.2-24B' },
-    { id: 'mistral-large', name: 'Mistral Large', version: 'Mistral-Large-123B' }, // Update
-    
-    // Perplexity Models
-    { id: 'perplexity-fast', name: 'Perplexity Fast', version: 'Sonar' },
-    { id: 'perplexity-reasoning', name: 'Perplexity Reasoning', version: 'Sonar-Pro' },
-    
-    // Chinese AI Models
-    { id: 'kimi', name: 'Kimi', version: 'Kimi-K2' }, // K2.5 belum dikonfirmasi
-    { id: 'kimi-large', name: 'Kimi Large', version: 'Kimi-large' },
-    { id: 'kimi-reasoning', name: 'Kimi Reasoning', version: 'Kimi-reasoning' },
-    { id: 'glm', name: 'GLM', version: 'GLM-4.5-Air' }, // Update
-    { id: 'minimax', name: 'MiniMax', version: 'M2.1' },
-    
-    // Grok Models
-    { id: 'grok', name: 'Grok', version: 'Grok-4' },
-    { id: 'grok-fast', name: 'Grok Fast', version: 'Grok-fast' },
-    
-    // Amazon Nova
-    { id: 'nova-fast', name: 'Nova Fast', version: 'Amazon-Nova' },
-    
-    // Microsoft Phi
-    { id: 'phi', name: 'Phi', version: 'Phi-4' },
-    
-    // Search/Tool Models
-    { id: 'searchgpt', name: 'SearchGPT', version: 'v1' },
-    
-    // Creative/Art Models
-    { id: 'midijourney', name: 'Midijourney', version: 'v1' },
-    { id: 'unity', name: 'Unity', version: 'v1' },
-    { id: 'rtist', name: 'Rtist', version: 'v1' },
-    
-    // Special/Character Models
-    { id: 'evil', name: 'Evil Mode', version: 'Uncensored' },
-    { id: 'p1', name: 'P1', version: 'v1' },
-    { id: 'hormoz', name: 'Hormoz', version: 'v1' },
-    { id: 'sur', name: 'Sur', version: 'v1' },
-    { id: 'bidara', name: 'Bidara', version: 'v1' },
-    
-    // Education/Utility Models
-    { id: 'chickytutor', name: 'ChickyTutor', version: 'Education' },
-    { id: 'nomnom', name: 'NomNom', version: 'Food' }
-];
-
-// ==================== AI PROVIDERS ====================
-
-const AI_PROVIDERS = {
-    gemini: {
-        name: 'Google Gemini',
-        models: [
-            // GEMINI 3 - MODEL TERBARU (Feb 2026)
-            { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro Preview', version: '3.0-pro' },
-            { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview', version: '3.0-flash' },
-            { id: 'gemini-3-pro', name: 'Gemini 3 Pro', version: '3-pro' }, // TAMBAHAN
-            { id: 'gemini-3-flash', name: 'Gemini 3 Flash', version: '3-flash' }, // TAMBAHAN - default baru
-            
-            // GEMINI 2.5
-            { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', version: '2.5-pro' },
-            { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', version: '2.5-flash' },
-            { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', version: '2.5-lite' },
-            
-            // GEMINI 2.0
-            { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', version: '2.0-flash' },
-            // HAPUS 2.0-flash-lite (deprecated March 31, 2026)
-            
-            // GEMINI LATEST
-            { id: 'gemini-flash-latest', name: 'Gemini Flash Latest', version: 'latest' },
-            { id: 'gemini-pro-latest', name: 'Gemini Pro Latest', version: 'latest' },
-            
-            // GEMMA
-            { id: 'gemma-3-27b-it', name: 'Gemma 3 27B', version: '27B' },
-            { id: 'gemma-3-12b-it', name: 'Gemma 3 12B', version: '12B' },
-            { id: 'gemma-3-4b-it', name: 'Gemma 3 4B', version: '4B' },
-            
-            // SPECIAL
-            { id: 'deep-research-pro-preview-12-2025', name: 'Deep Research Pro', version: 'research' }
-        ]
-    },
-
-    groq: {
-        name: 'Groq',
-        models: [
-            // LLAMA
-            { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', version: 'v3.3' },
-            { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B', version: 'v3.1' },
-            { id: 'meta-llama/llama-4-maverick-17b-128e-instruct', name: 'Llama 4 Maverick', version: '17B-128E' },
-            { id: 'meta-llama/llama-4-scout-17b-16e-instruct', name: 'Llama 4 Scout', version: '17B-16E' },
-            
-            // GPT-OSS (BARU - Feb 2026)
-            { id: 'openai/gpt-oss-120b', name: 'GPT OSS 120B', version: '120B' },
-            { id: 'openai/gpt-oss-20b', name: 'GPT OSS 20B', version: '20B' },
-            
-            // MIXTRAL
-            { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', version: '8x7B' },
-            
-            // GEMMA
-            { id: 'gemma2-9b-it', name: 'Gemma 2 9B', version: '9B' },
-            
-            // QWEN
-            { id: 'qwen/qwen3-32b', name: 'Qwen 3 32B', version: '32B' }, // UPDATE
-            
-            // KIMI
-            { id: 'moonshotai/kimi-k2-instruct-0905', name: 'Kimi K2', version: 'K2' },
-            
-            // LLAMA TOOL USE
-            { id: 'llama-3-groq-70b-tool-use', name: 'Llama 3 70B Tool', version: '70B-tool' },
-            { id: 'llama-3-groq-8b-tool-use', name: 'Llama 3 8B Tool', version: '8B-tool' }
-        ]
-    },
-
-    openrouter: {
-        name: 'OpenRouter',
-        models: [
-            // TRINITY (BARU)
-            { id: 'arcee-ai/trinity-large-preview:free', name: 'Trinity Large Preview (free)', version: 'Large-400B' },
-            
-            // STEP 3.5
-            { id: 'stepfun/step-3.5-flash:free', name: 'Step 3.5 Flash (free)', version: '3.5-Flash' }, // TAMBAHAN
-            
-            // SOLAR
-            { id: 'upstage/solar-pro-3:free', name: 'Solar Pro 3 (free)', version: 'Pro-3' },
-            
-            // LIQUID
-            { id: 'liquid/lfm-2.5-1.2b-thinking:free', name: 'LFM2.5-1.2B-Thinking (free)', version: '1.2B' },
-            { id: 'liquid/lfm-2.5-1.2b-instruct:free', name: 'LFM2.5-1.2B-Instruct (free)', version: '1.2B' },
-            
-            // MOLMO
-            { id: 'allenai/molmo-2-8b:free', name: 'Molmo2 8B (free)', version: '8B' },
-            
-            // DEEPSEEK
-            { id: 'tngtech/deepseek-r1t-chimera:free', name: 'R1T Chimera (free)', version: 'R1T' },
-            { id: 'tngtech/deepseek-r1t2-chimera:free', name: 'DeepSeek R1T2 Chimera (free)', version: 'R1T2' },
-            { id: 'deepseek/deepseek-r1-0528:free', name: 'R1 0528 (free)', version: '0528' },
-            
-            // GLM
-            { id: 'z-ai/glm-4.5-air:free', name: 'GLM 4.5 Air (free)', version: '4.5-Air' },
-            
-            // UNCENSORED
-            { id: 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free', name: 'Uncensored (free)', version: '24B' },
-            
-            // GEMMA
-            { id: 'google/gemma-3n-e2b-it:free', name: 'Gemma 3n 2B (free)', version: '3n-2B' },
-            
-            // MISTRAL
-            { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 3.1 24B (free)', version: '24B' },
-            
-            // GEMINI
-            { id: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (free)', version: '2.0-flash' },
-            
-            // LLAMA
-            { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B (free)', version: '70B' },
-            { id: 'meta-llama/llama-3.1-405b-instruct:free', name: 'Llama 3.1 405B (free)', version: '405B' },
-            
-            // QWEN
-            { id: 'qwen/qwen3-coder:free', name: 'Qwen3 Coder (free)', version: 'Coder' },
-            
-            // KIMI
-            { id: 'moonshotai/kimi-k2:free', name: 'Kimi K2 (free)', version: 'K2' },
-            
-            // GPT-OSS
-            { id: 'openai/gpt-oss-120b:free', name: 'GPT OSS 120B (free)', version: '120B' },
-            
-            // HERMES
-            { id: 'nousresearch/hermes-3-llama-3.1-405b:free', name: 'Hermes 3 405B (free)', version: '405B' },
-            
-            // NVIDIA NEMOTRON (TAMBAHAN)
-            { id: 'nvidia/nemotron-nano-9b-v2:free', name: 'Nemotron Nano 9B (free)', version: '9B-v2' }
-        ]
-    },
-
-    pollinations_free: {
-        name: 'Pollinations (Free)',
-        requiresKey: false,
-        models: POLLINATIONS_MODELS
-    },
-
-    pollinations_api: {
-        name: 'Pollinations (API)',
-        requiresKey: true,
-        models: POLLINATIONS_MODELS
-    },
-
-    huggingface: {
-        name: 'HuggingFace',
-        models: [
-            { id: 'meta-llama/Meta-Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B', version: '3.1-8B' },
-            { id: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B', version: '3.3-70B' },
-            { id: 'HuggingFaceH4/zephyr-7b-beta', name: 'Zephyr 7B', version: '7B-beta' },
-            { id: 'mistralai/Mistral-7B-Instruct-v0.1', name: 'Mistral 7B', version: '7B-v0.1' },
-            { id: 'mistralai/Mixtral-8x7B-Instruct-v0.1', name: 'Mixtral 8x7B', version: '8x7B' },
-            { id: 'google/flan-t5-large', name: 'Flan T5 Large', version: 'T5-large' },
-            { id: 'EleutherAI/gpt-j-6B', name: 'GPT-J 6B', version: '6B' },
-            { id: 'Qwen/Qwen2.5-72B-Instruct', name: 'Qwen 2.5 72B', version: '2.5-72B' },
-            { id: 'google/gemma-2-27b-it', name: 'Gemma 2 27B', version: '2-27B' }
-        ]
-    }
-};
-
-// ==================== TTS VOICES ====================
-
-// Premium TTS Voices untuk Admin (Edge-TTS - GRATIS!)
-// Edge-TTS Voices (FREE - untuk semua user)
-const EDGE_TTS_VOICES = [
-    // Indonesia 
-    { id: 'id-ID-ArdiNeural', name: '🇮🇩 Ardi (Pria)', lang: 'id' },
-    { id: 'id-ID-GadisNeural', name: '🇮🇩 Gadis (Wanita)', lang: 'id' },
-    // English US
-    { id: 'en-US-JennyNeural', name: '🇺🇸 Jenny (Female)', lang: 'en' },
-    { id: 'en-US-GuyNeural', name: '🇺🇸 Guy (Male)', lang: 'en' },
-    // English UK
-    { id: 'en-GB-SoniaNeural', name: '🇬🇧 Sonia (Female)', lang: 'en' },
-    { id: 'en-GB-RyanNeural', name: '🇬🇧 Ryan (Male)', lang: 'en' },
-    // Japanese
-    { id: 'ja-JP-NanamiNeural', name: '🇯🇵 Nanami (Female)', lang: 'ja' },
-    { id: 'ja-JP-KeitaNeural', name: '🇯🇵 Keita (Male)', lang: 'ja' },
-    // Korean
-    { id: 'ko-KR-SunHiNeural', name: '🇰🇷 SunHi (Female)', lang: 'ko' },
-    { id: 'ko-KR-InJoonNeural', name: '🇰🇷 InJoon (Male)', lang: 'ko' },
-    // Chinese
-    { id: 'zh-CN-XiaoxiaoNeural', name: '🇨🇳 Xiaoxiao (Female)', lang: 'zh' },
-    { id: 'zh-CN-YunxiNeural', name: '🇨🇳 Yunxi (Male)', lang: 'zh' },
-];
-
-// Premium TTS Voices (ElevenLabs via Puter.js)
-const ELEVENLABS_VOICES = [
-    // --- INDONESIAN VOICES ---
-    { id: 'gmnazjXOFoOcWA59sd5m', name: '👑 Toing (Default)', lang: 'id' },
-    { id: 'plgKUYgnlZ1DCNh54DwJ', name: '🇮🇩 Pria Berwibawa', lang: 'id' },
-    { id: 'LcvlyuBGMjj1h4uAtQjo', name: '🇮🇩 Wanita Lembut', lang: 'id' },
-    { id: 'gjhfBUoH6DHh0DG1X4u0', name: '🇮🇩 Pria Muda', lang: 'id' },
-    { id: 'GrxM8OEUWBzyFR2xP2Qd', name: '🇮🇩 Wanita Pro', lang: 'id' },
-    { id: 'RbNgJzKAV7jpYJNtCBpj', name: '🇮🇩 Pria Narator', lang: 'id' },
-    { id: 'k5eTzx1VYYlp6BE39Qrj', name: '🇮🇩 Wanita Berita', lang: 'id' },
-    { id: 'tX4zpyB6s34no1FgD0Mm', name: '🇮🇩 Pria Santai', lang: 'id' },
-    { id: 'ACRfKVNOAnzVitkYerdl', name: '🇮🇩 Wanita Ceria', lang: 'id' },
-    { id: 'RWiGLY9uXI70QL540WNd', name: '🇮🇩 Pria Serius', lang: 'id' },
-    { id: 'X8n8hOy3e8VLQnHTUcc5', name: '🇮🇩 Wanita Elegan', lang: 'id' },
-    { id: 'I7sakys8pBZ1Z5f0UhT9', name: '🇮🇩 Pria Ramah', lang: 'id' },
-
-    // --- ENGLISH VOICES ---
-    { id: 'KoQQbl9zjAdLgKZjm8Ol', name: '🇺🇸 Male Deep', lang: 'en' },
-    { id: '6qL48o1LBmtR94hIYAQh', name: '🇺🇸 Female Soft', lang: 'en' },
-    { id: 'FVQMzxJGPUBtfz1Azdoy', name: '🇺🇸 Male Energetic', lang: 'en' },
-    { id: 'LG95yZDEHg6fCZdQjLqj', name: '🇺🇸 Female Pro', lang: 'en' },
-];
-
-// Helper functions
-function getTTSVoices(provider) {
-    return provider === 'elevenlabs' ? ELEVENLABS_VOICES : EDGE_TTS_VOICES;
-}
-
-function getDefaultVoice(provider) {
-    return provider === 'elevenlabs' 
-        ? 'id-ID-ArdiNeural'    // Pakai Edge-TTS voice
-        : 'id-ID-GadisNeural';
-}
-
-// Backward compatibility
-const TTS_VOICES = EDGE_TTS_VOICES;
-
-// ==================== DEFAULT SETTINGS ====================
-
-const DEFAULT_SETTINGS = {
-    aiProvider: 'groq',
-    aiModel: 'llama-3.3-70b-versatile',
-    ttsProvider: 'edge-tts',           // 'elevenlabs' atau 'edge-tts'
-    ttsVoice: 'id-ID-ArdiNeural',     // Default untuk edge-tts
-    ttsVoiceElevenlabs: 'id-ID-ArdiNeural',
-    searchEnabled: true,
-    searchProvider: 'auto',
-    geminiGrounding: true
-};
-
-// ==================== CLIENT & STORAGE ====================
 
 const client = new Client({
     intents: [
@@ -1085,883 +182,23 @@ const client = new Client({
         GatewayIntentBits.GuildMembers
     ],
     partials: [Partials.Message, Partials.Channel, Partials.GuildMember],
-    presence: { status: 'online', activities: [{ name: '.help | AI Assistant', type: ActivityType.Listening }] }
+    presence: { 
+        status: 'online', 
+        activities: [{ name: '.help | AI Assistant', type: ActivityType.Listening }] 
+    }
 });
 
-const guildSettings = new Map();
-const voiceConnections = new Map();
-const audioPlayers = new Map();
-const ttsQueues = new Map();
-const conversations = new Map();
-// ==================== VOICE AI STORAGE ====================
-const voiceRecordings = new Map();
-const voiceAISessions = new Map();
-const processingUsers = new Set();
-
-function getSettings(guildId) {
-    if (!guildSettings.has(guildId)) guildSettings.set(guildId, { ...DEFAULT_SETTINGS });
-    return guildSettings.get(guildId);
-}
-
-function updateSettings(guildId, key, value) {
-    const s = getSettings(guildId);
-    s[key] = value;
-}
-
-function isAdmin(userId) {
-    // Convert to string untuk memastikan comparison benar
-    return CONFIG.adminIds.includes(String(userId));
-}
-
-// ==================== CONVERSATION MEMORY ====================
-
-function getConversation(guildId, userId) {
-    const key = `${guildId}-${userId}`;
-    if (!conversations.has(key)) {
-        conversations.set(key, { messages: [], createdAt: Date.now(), lastActivity: Date.now() });
-    }
-    const conv = conversations.get(key);
-    conv.lastActivity = Date.now();
-    return conv;
-}
-
-function addToConversation(guildId, userId, role, content) {
-    const conv = getConversation(guildId, userId);
-    conv.messages.push({ role, content, timestamp: Date.now() });
-    if (conv.messages.length > CONFIG.maxConversationMessages) {
-        conv.messages = conv.messages.slice(-CONFIG.maxConversationMessages);
-    }
-}
-
-function clearConversation(guildId, userId) {
-    conversations.delete(`${guildId}-${userId}`);
-}
+// ============================================================
+//         CLEANUP INTERVAL
+// ============================================================
 
 setInterval(() => {
-    const now = Date.now();
-    for (const [key, conv] of conversations) {
-        if (now - conv.lastActivity > CONFIG.maxConversationAge) {
-            conversations.delete(key);
-        }
-    }
+    cleanupOldConversations();
 }, 300000);
 
-// ==================== UTILITIES ====================
-
-function ensureTempDir() {
-    if (!fs.existsSync(CONFIG.tempPath)) {
-        fs.mkdirSync(CONFIG.tempPath, { recursive: true });
-    }
-}
-
-function cleanupFile(filepath) {
-    try { if (filepath && fs.existsSync(filepath)) fs.unlinkSync(filepath); } catch (e) {}
-}
-
-function splitMessage(text, maxLength = 1900) {
-    if (text.length <= maxLength) return [text];
-    const parts = [];
-    let remaining = text;
-    while (remaining.length > 0) {
-        if (remaining.length <= maxLength) { parts.push(remaining); break; }
-        let idx = remaining.lastIndexOf('\n', maxLength);
-        if (idx === -1 || idx < maxLength / 2) idx = remaining.lastIndexOf('. ', maxLength);
-        if (idx === -1 || idx < maxLength / 2) idx = remaining.lastIndexOf(' ', maxLength);
-        if (idx === -1) idx = maxLength;
-        parts.push(remaining.slice(0, idx + 1));
-        remaining = remaining.slice(idx + 1);
-    }
-    return parts;
-}
-
-// ==================== HTTP HELPER ====================
-
-function httpRequest(options, body) {
-    return new Promise((resolve, reject) => {
-        const req = https.request(options, res => {
-            let data = '';
-            res.on('data', c => data += c);
-            res.on('end', () => resolve({ data, statusCode: res.statusCode }));
-        });
-        req.on('error', reject);
-        req.setTimeout(60000, () => { req.destroy(); reject(new Error('Timeout')); });
-        if (body) req.write(body);
-        req.end();
-    });
-}
-
-// --- FUNGSI BARU ---
-async function generatePuterTTS(text, options = {}) {
-    let apiUrl = CONFIG.puterTTS?.apiUrl || 'https://puter-tts-api.onrender.com';
-    if (!apiUrl.startsWith('http')) apiUrl = `https://${apiUrl}`;
-    if (apiUrl.endsWith('/')) apiUrl = apiUrl.slice(0, -1);
-
-    const voiceId = options.voiceId || CONFIG.puterTTS?.voiceId || 'gmnazjXOFoOcWA59sd5m';
-    
-    console.log(`🎤 Puter.js TTS: Requesting to ${apiUrl}/tts`);
-
-    try {
-        const response = await fetch(`${apiUrl}/tts`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                text: text.slice(0, 2500),
-                model: 'eleven_multilingual_v2',
-                voice_id: voiceId
-            }),
-            timeout: 60000
-        });
-
-        if (!response.ok) throw new Error(`API Error ${response.status}`);
-        const result = await response.json();
-        
-        if (!result.success || !result.audioUrl) throw new Error(result.error || 'No audio URL');
-
-        const audioUrl = result.audioUrl;
-
-        // === HANDLE DATA URI (Base64) ===
-        if (audioUrl.startsWith('data:')) {
-            console.log('📥 Decoding Base64 Audio...');
-            // Format: data:audio/mpeg;base64,SUQzBA...
-            const base64Data = audioUrl.split(',')[1];
-            return Buffer.from(base64Data, 'base64');
-        }
-
-        // === HANDLE NORMAL URL ===
-        let downloadUrl = audioUrl;
-        if (downloadUrl.startsWith('//')) {
-            downloadUrl = `https:${downloadUrl}`;
-        }
-        
-        console.log(`📥 Downloading: ${downloadUrl}`);
-        const audioRes = await fetch(downloadUrl);
-        if (!audioRes.ok) throw new Error('Failed to download audio file');
-        
-        const arrayBuffer = await audioRes.arrayBuffer();
-        return Buffer.from(arrayBuffer);
-
-    } catch (error) {
-        console.error('❌ Puter.js TTS Failed:', error.message);
-        throw error;
-    }
-}
-// ==================== TTS FUNCTIONS ====================
-
-function cleanTextForTTS(text) {
-    return text
-        .replace(/https?:\/\/[^\s]+/g, '')
-        .replace(/www\.[^\s]+/g, '')
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-        .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')
-        .replace(/[\u{2600}-\u{27BF}]/gu, '')
-        .replace(/:[a-zA-Z0-9_]+:/g, '')
-        .replace(/```[\w]*\n?([\s\S]*?)```/g, ' kode ')
-        .replace(/`([^`]+)`/g, '$1')
-        .replace(/\*\*([^*]+)\*\*/g, '$1')
-        .replace(/\*([^*]+)\*/g, '$1')
-        .replace(/#{1,6}\s*/g, '')
-        .replace(/\n{3,}/g, '\n\n')
-        .replace(/\s+/g, ' ')
-        .trim();
-}
-
-async function generateTTS(text, voice, userId = null) {
-    ensureTempDir();
-    const outputPath = path.join(CONFIG.tempPath, `tts_${Date.now()}.mp3`);
-    const safeText = cleanTextForTTS(text).slice(0, 2900);
-
-    if (!safeText || safeText.length < 2) throw new Error('Text too short');
-
-    // Cek status Puter (harus true di config)
-    const usePuter = CONFIG.puterTTS?.enabled;
-    const userIsAdmin = userId ? isAdmin(String(userId)) : false;
-    
-    // Cek apakah ini voice ID ElevenLabs (format panjang)
-    const isElevenLabs = voice && (voice.length > 20 || voice.startsWith('gmn'));
-
-    console.log(`🔊 TTS Request: Voice=${voice} Admin=${userIsAdmin} Puter=${usePuter}`);
-
-    // 1. Coba Puter.js (Hanya jika enabled + admin + voice cocok)
-    if (usePuter && userIsAdmin && isElevenLabs) {
-        try {
-            console.log(`🎤 Puter.js Generating: ${voice}`);
-            const audioBuffer = await generatePuterTTS(safeText, { voiceId: voice });
-            fs.writeFileSync(outputPath, audioBuffer);
-            console.log(`✅ Puter.js Success`);
-            return outputPath;
-        } catch (error) {
-            console.warn(`⚠️ Puter.js Failed, fallback to Edge-TTS: ${error.message}`);
-        }
-    }
-
-    // 2. FALLBACK KE EDGE-TTS (Pasti Jalan)
-    // Jika voice ID itu punya ElevenLabs (panjang), ganti ke default Edge-TTS
-    let edgeVoice = voice;
-    if (!edgeVoice || edgeVoice.length > 30 || !edgeVoice.includes('Neural')) {
-        edgeVoice = 'id-ID-GadisNeural'; // Default Mbak Gadis
-    }
-
-    console.log(`🔊 Generating Edge-TTS: ${edgeVoice}`);
-    await generateEdgeTTS(safeText, edgeVoice, outputPath);
-    console.log(`✅ Edge-TTS Success`);
-    
-    return outputPath;
-}
-
-// Check apakah voice ID adalah ElevenLabs
-function isElevenlabsVoice(voiceId) {
-    if (!voiceId) return false;
-    // Cek di daftar premium kita ATAU format ID ElevenLabs (20 chars)
-    return ELEVENLABS_VOICES.some(v => v.id === voiceId) || 
-           (voiceId.length === 20 && /^[a-zA-Z0-9]+$/.test(voiceId));
-}
-
-// Check apakah voice ID adalah Edge-TTS
-function isEdgeTTSVoice(voiceId) {
-    if (!voiceId) return false;
-    // Semua voice dengan Neural adalah Edge-TTS
-    if (voiceId.includes('Neural')) return true;
-    // Cek di daftar
-    return EDGE_TTS_VOICES.some(v => v.id === voiceId) || ELEVENLABS_VOICES.some(v => v.id === voiceId);
-}
-
-async function generateElevenLabsTTS(text, voiceId, outputPath) {
-    const apiKey = CONFIG.elevenlabs.apiKey;
-    const modelId = CONFIG.elevenlabs.modelId || 'eleven_multilingual_v2';
-    const scraperKey = CONFIG.elevenlabs.scraperApiKey;
-    
-    let fetchOptions = {
-        method: 'POST',
-        headers: {
-            'Accept': 'audio/mpeg',
-            'Content-Type': 'application/json',
-            'xi-api-key': apiKey
-        },
-        body: JSON.stringify({
-            text: text,
-            model_id: modelId,
-            voice_settings: {
-                stability: 0.5,
-                similarity_boost: 0.75,
-                style: 0.0,
-                use_speaker_boost: true
-            }
-        })
-    };
-
-    if (scraperKey) {
-        console.log(`🛡️ Proxy: Using ScraperAPI to bypass ElevenLabs IP block...`);
-        const proxyUrl = `http://scraperapi.render=true.premium=true:${scraperKey}@proxy-server.scraperapi.com:8001`;
-        
-        const agent = new HttpsProxyAgent(proxyUrl, {
-            rejectUnauthorized: false
-        });
-        
-        fetchOptions.agent = agent;
-    } else {
-        console.log(`⚠️ Proxy: No ScraperAPI key found. Direct connection may fail (401).`);
-    }
-    
-    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-        ...fetchOptions,
-        timeout: 120000 
-    });
-    
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`ElevenLabs API: ${response.status} - ${errorText}`);
-    }
-    
-    const audioBuffer = await response.buffer();
-    
-    if (audioBuffer.length < 1000) {
-        throw new Error('ElevenLabs returned empty audio');
-    }
-    
-    fs.writeFileSync(outputPath, audioBuffer);
-    console.log(`✅ ElevenLabs generated: ${audioBuffer.length} bytes`);
-    
-    return outputPath;
-}
-
-function generateEdgeTTS(text, voice, outputPath) {
-    return new Promise((resolve, reject) => {
-        const safeText = text.replace(/"/g, "'").replace(/`/g, "'");
-        
-        // Tambahkan parameter --rate
-        // +20% = sedikit lebih cepat (natural)
-        // +50% = cepat banget
-        const rate = "+20%"; 
-        
-        const cmd = `edge-tts --voice "${voice}" --rate="${rate}" --text "${safeText}" --write-media "${outputPath}"`;
-        
-        console.log(`🔊 Edge-TTS: Generating with rate ${rate}`);
-        
-        exec(cmd, { timeout: 30000 }, (err) => {
-            if (err) reject(err);
-            else resolve(outputPath);
-        });
-    });
-}
-// ==================== AI PROVIDER CALLS ====================
-
-async function callGemini(model, message, history, systemPrompt, useGrounding = false) {
-    const apiKey = await manager.getActiveKey('gemini', CONFIG.geminiApiKey);
-    if (!apiKey) throw new Error('No Gemini API key');
-
-    const contents = [];
-    history.slice(-20).forEach(m => {
-        contents.push({
-            role: m.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: m.content }]
-        });
-    });
-    contents.push({ role: 'user', parts: [{ text: message }] });
-
-    const requestBody = {
-        contents: contents,
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        generationConfig: { 
-            temperature: 0.7, 
-            topP: 0.95, 
-            topK: 40, 
-            maxOutputTokens: 8192
-        },
-        safetySettings: [
-            { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-            { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-            { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
-        ]
-    };
-
-    if (useGrounding) {
-        requestBody.tools = [{ googleSearch: {} }];
-    }
-
-    const { data, statusCode } = await httpRequest({
-        hostname: 'generativelanguage.googleapis.com',
-        path: `/v1beta/models/${model}:generateContent?key=${apiKey}`,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-    }, JSON.stringify(requestBody));
-
-    if (statusCode !== 200) {
-        const result = JSON.parse(data);
-        throw new Error(result.error?.message || `HTTP ${statusCode}`);
-    }
-
-    const result = JSON.parse(data);
-    if (result.candidates?.[0]?.content?.parts?.[0]?.text) {
-        return {
-            text: result.candidates[0].content.parts[0].text,
-            grounded: !!result.candidates[0]?.groundingMetadata
-        };
-    }
-    throw new Error('No response from Gemini');
-}
-
-async function callGroq(model, message, history, systemPrompt) {
-    const apiKey = await manager.getActiveKey('groq', CONFIG.groqApiKey);
-    if (!apiKey) throw new Error('No Groq API key');
-
-    const messages = [
-        { role: 'system', content: systemPrompt },
-        ...history.slice(-30).map(m => ({ role: m.role, content: m.content })),
-        { role: 'user', content: message }
-    ];
-
-    const { data, statusCode } = await httpRequest({
-        hostname: 'api.groq.com',
-        path: '/openai/v1/chat/completions',
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
-    }, JSON.stringify({ model, messages, max_completion_tokens: 8000, temperature: 0.7 }));
-
-    if (statusCode !== 200) {
-        const result = JSON.parse(data);
-        throw new Error(result.error?.message || `HTTP ${statusCode}`);
-    }
-
-    const result = JSON.parse(data);
-    return result.choices[0].message.content;
-}
-
-async function callOpenRouter(model, message, history, systemPrompt) {
-    const apiKey = await manager.getActiveKey('openrouter', CONFIG.openrouterApiKey);
-    if (!apiKey) throw new Error('No OpenRouter API key');
-
-    const messages = [
-        { role: 'system', content: systemPrompt },
-        ...history.slice(-30).map(m => ({ role: m.role, content: m.content })),
-        { role: 'user', content: message }
-    ];
-
-    const { data, statusCode } = await httpRequest({
-        hostname: 'openrouter.ai',
-        path: '/api/v1/chat/completions',
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://discord.com',
-            'X-Title': 'Discord AI Bot'
-        }
-    }, JSON.stringify({ model, messages, max_tokens: 2000, temperature: 0.7 }));
-
-    if (statusCode !== 200) {
-        const result = JSON.parse(data);
-        throw new Error(result.error?.message || `HTTP ${statusCode}`);
-    }
-
-    const result = JSON.parse(data);
-    return result.choices[0].message.content;
-}
-
-async function callPollinationsFree(model, message, history, systemPrompt) {
-    let prompt = systemPrompt + '\n\n';
-    history.slice(-10).forEach(m => {
-        prompt += m.role === 'user' ? `User: ${m.content}\n` : `Assistant: ${m.content}\n`;
-    });
-    prompt += `User: ${message}\nAssistant:`;
-
-    const encoded = encodeURIComponent(prompt.slice(0, 4000));
-    const seed = Math.floor(Math.random() * 1000000);
-
-    return new Promise((resolve, reject) => {
-        https.get(`https://text.pollinations.ai/${encoded}?model=${model}&seed=${seed}`, { timeout: 60000 }, res => {
-            let data = '';
-            res.on('data', c => data += c);
-            res.on('end', () => {
-                if (res.statusCode === 200 && data.trim()) {
-                    let r = data.trim();
-                    if (r.startsWith('Assistant:')) r = r.slice(10).trim();
-                    resolve(r);
-                } else {
-                    reject(new Error(`HTTP ${res.statusCode}`));
-                }
-            });
-        }).on('error', reject).on('timeout', () => reject(new Error('Timeout')));
-    });
-}
-
-async function callPollinationsAPI(model, message, history, systemPrompt) {
-    const apiKey = await manager.getActiveKey('pollinations_api', CONFIG.pollinationsApiKey);
-    if (!apiKey) throw new Error('No Pollinations API key');
-
-    const messages = [
-        { role: 'system', content: systemPrompt },
-        ...history.slice(-10).map(m => ({ role: m.role, content: m.content })),
-        { role: 'user', content: message }
-    ];
-
-    const requestBody = {
-        model: model,
-        messages: messages,
-        max_tokens: 2000,
-        temperature: 0.7
-    };
-
-    const { data, statusCode } = await httpRequest({
-        hostname: 'gen.pollinations.ai',
-        path: '/v1/chat/completions',
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json'
-        }
-    }, JSON.stringify(requestBody));
-
-    if (statusCode !== 200) {
-        try {
-            const result = JSON.parse(data);
-            throw new Error(result.error?.message || `HTTP ${statusCode}`);
-        } catch {
-            throw new Error(`HTTP ${statusCode}`);
-        }
-    }
-
-    const result = JSON.parse(data);
-    if (result.choices?.[0]?.message?.content) {
-        return result.choices[0].message.content;
-    }
-    throw new Error('No response from Pollinations API');
-}
-
-async function callHuggingFace(model, message, history, systemPrompt) {
-    const apiKey = await manager.getActiveKey('huggingface', CONFIG.huggingfaceApiKey);
-    if (!apiKey) throw new Error('No HuggingFace API key');
-
-    let prompt = systemPrompt + '\n\n';
-    history.slice(-10).forEach(m => {
-        prompt += m.role === 'user' ? `User: ${m.content}\n` : `Assistant: ${m.content}\n`;
-    });
-    prompt += `User: ${message}\nAssistant:`;
-
-    const { data, statusCode } = await httpRequest({
-        hostname: 'api-inference.huggingface.co',
-        path: `/models/${model}`,
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
-    }, JSON.stringify({ inputs: prompt, parameters: { max_new_tokens: 1000, temperature: 0.7, return_full_text: false } }));
-
-    if (statusCode !== 200) {
-        const result = JSON.parse(data);
-        throw new Error(result.error || `HTTP ${statusCode}`);
-    }
-
-    const result = JSON.parse(data);
-    if (result.error) throw new Error(result.error);
-    const text = Array.isArray(result) ? result[0].generated_text : result.generated_text;
-    return text.split('Assistant:').pop().trim();
-}
-
-// ==================== MAIN AI CALL ====================
-
-async function callAI(guildId, userId, userMessage, isVoiceMode = false) {
-    const s = getSettings(guildId);
-    const { aiProvider, aiModel, searchEnabled, searchProvider, geminiGrounding } = s;
-    const start = Date.now();
-
-    const conv = getConversation(guildId, userId);
-    const history = conv.messages;
-
-    let searchContext = '';
-    let searchData = null;
-    let useGeminiGrounding = false;
-
-    const needsSearch = searchEnabled && shouldSearch(userMessage);
-
-    if (aiProvider === 'gemini' && geminiGrounding && needsSearch) {
-        useGeminiGrounding = true;
-    } else if (needsSearch) {
-        searchData = await performSearch(userMessage, searchProvider);
-        if (searchData && searchData.urls && searchData.urls.length > 0) {
-            // Fetch and read URLs from search results
-            const contents = [];
-            for (const url of searchData.urls.slice(0, 3)) {
-                try {
-                    const content = await fetchURLClean(url);
-                    if (content) {
-                        contents.push({ url, content: content.slice(0, 3000) });
-                    }
-                } catch (e) {
-                    console.error('Failed to fetch search result URL:', e.message);
-                }
-            }
-            
-            if (contents.length > 0) {
-                searchContext = '\n\n[SEARCH RESULTS]\n';
-                contents.forEach((c, i) => {
-                    searchContext += `\nSource ${i + 1}: ${c.url}\n${c.content}\n`;
-                });
-                searchContext += '\nUse the above search results to provide an accurate and up-to-date answer.';
-            }
-        }
-    }
-
-    let finalSystemPrompt = SYSTEM_PROMPT + searchContext;
-    if (isVoiceMode) finalSystemPrompt += '\n[MODE SUARA: Jawab singkat 2-4 kalimat]';
-
-    try {
-        let response, grounded = false;
-
-        switch (aiProvider) {
-            case 'gemini':
-                const geminiResult = await callGemini(aiModel, userMessage, history, finalSystemPrompt, useGeminiGrounding);
-                response = geminiResult.text;
-                grounded = geminiResult.grounded;
-                break;
-            case 'groq':
-                response = await callGroq(aiModel, userMessage, history, finalSystemPrompt);
-                break;
-            case 'openrouter':
-                response = await callOpenRouter(aiModel, userMessage, history, finalSystemPrompt);
-                break;
-            case 'huggingface':
-                response = await callHuggingFace(aiModel, userMessage, history, finalSystemPrompt);
-                break;
-            case 'pollinations_free':
-                response = await callPollinationsFree(aiModel, userMessage, history, finalSystemPrompt);
-                break;
-            case 'pollinations_api':
-                response = await callPollinationsAPI(aiModel, userMessage, history, finalSystemPrompt);
-                break;
-            default:
-                response = await callPollinationsFree('openai', userMessage, history, finalSystemPrompt);
-        }
-
-        addToConversation(guildId, userId, 'user', userMessage);
-        addToConversation(guildId, userId, 'assistant', response);
-
-        const modelInfo = AI_PROVIDERS[aiProvider]?.models.find(m => m.id === aiModel) || { name: aiModel };
-
-        return {
-            text: response,
-            provider: AI_PROVIDERS[aiProvider]?.name || aiProvider,
-            model: modelInfo.name,
-            latency: Date.now() - start,
-            searched: !!searchData || grounded,
-            searchSource: searchData?.source || (grounded ? 'gemini-grounding' : null)
-        };
-
-    } catch (error) {
-        console.error(`AI Error (${aiProvider}):`, error.message);
-
-        if (error.message.includes('quota') || error.message.includes('limit') || error.message.includes('429')) {
-            const rotated = await manager.rotateKey(aiProvider);
-            if (rotated) {
-                console.log(`🔄 Rotated ${aiProvider} key, retrying...`);
-                try {
-                    return await callAI(guildId, userId, userMessage, isVoiceMode);
-                } catch (retryError) {
-                    console.error('Retry failed:', retryError.message);
-                }
-            }
-        }
-
-        if (aiProvider !== 'pollinations_free') {
-            console.log('Fallback to Pollinations Free...');
-            try {
-                const fallback = await callPollinationsFree('openai', userMessage, history, finalSystemPrompt);
-                addToConversation(guildId, userId, 'user', userMessage);
-                addToConversation(guildId, userId, 'assistant', fallback);
-                return {
-                    text: fallback,
-                    provider: 'Pollinations (Fallback)',
-                    model: 'OpenAI GPT',
-                    latency: Date.now() - start,
-                    searched: !!searchData
-                };
-            } catch (e) {
-                throw new Error(`All providers failed`);
-            }
-        }
-        throw error;
-    }
-}
-
-// ==================== VOICE FUNCTIONS ====================
-
-async function joinUserVoiceChannel(member, guild) {
-    const vc = member?.voice?.channel;
-    if (!vc) return { success: false, error: 'Masuk voice channel dulu' };
-
-    try {
-        const existingConn = getVoiceConnection(guild.id);
-        if (existingConn && existingConn.joinConfig.channelId === vc.id) {
-            return { success: true, channel: vc, alreadyConnected: true };
-        }
-
-        if (existingConn) {
-            existingConn.destroy();
-            voiceConnections.delete(guild.id);
-            audioPlayers.delete(guild.id);
-        }
-
-        const conn = joinVoiceChannel({
-            channelId: vc.id,
-            guildId: guild.id,
-            adapterCreator: guild.voiceAdapterCreator,
-            selfDeaf: false
-        });
-
-        await entersState(conn, VoiceConnectionStatus.Ready, 30000);
-
-        const player = createAudioPlayer();
-        conn.subscribe(player);
-
-        voiceConnections.set(guild.id, conn);
-        audioPlayers.set(guild.id, player);
-        ttsQueues.set(guild.id, { queue: [], playing: false, currentFile: null });
-
-        player.on(AudioPlayerStatus.Idle, () => processNextInQueue(guild.id));
-        player.on('error', (err) => {
-            console.error('Audio player error:', err.message);
-            processNextInQueue(guild.id);
-        });
-
-                // Setup voice receiver if Voice AI enabled
-        const session = voiceAISessions.get(guild.id);
-        if (session?.enabled) {
-            setupVoiceReceiver(conn, guild.id, session.textChannel);
-        }
-
-        return { success: true, channel: vc };
-
-    } catch (e) {
-        console.error('Voice join error:', e.message);
-        return { success: false, error: e.message };
-    }
-}
-
-async function leaveVoiceChannel(guild) {
-    const guildId = guild.id || guild;
-    
-    // Disable Voice AI when leaving
-    disableVoiceAI(guildId);
-    
-    const conn = voiceConnections.get(guildId) || getVoiceConnection(guildId);
-    // ... sisanya tetap
-
-    const queueData = ttsQueues.get(guildId);
-    if (queueData) {
-        if (queueData.currentFile) cleanupFile(queueData.currentFile);
-        queueData.queue.forEach(item => cleanupFile(item.file));
-    }
-
-    if (!conn) return false;
-
-    conn.destroy();
-    voiceConnections.delete(guildId);
-    audioPlayers.delete(guildId);
-    ttsQueues.delete(guildId);
-    return true;
-}
-
-function processNextInQueue(guildId) {
-    const queueData = ttsQueues.get(guildId);
-    if (!queueData) return;
-
-    if (queueData.currentFile) {
-        cleanupFile(queueData.currentFile);
-        queueData.currentFile = null;
-    }
-
-    if (queueData.queue.length === 0) {
-        queueData.playing = false;
-        return;
-    }
-
-    const player = audioPlayers.get(guildId);
-    if (!player) return;
-
-    const next = queueData.queue.shift();
-    queueData.currentFile = next.file;
-    queueData.playing = true;
-
-    try {
-        const resource = createAudioResource(next.file, { inputType: StreamType.Arbitrary });
-        player.play(resource);
-    } catch (e) {
-        console.error('Audio resource error:', e.message);
-        cleanupFile(next.file);
-        processNextInQueue(guildId);
-    }
-}
-
-async function playTTSInVoice(guildId, filePath) {
-    let queueData = ttsQueues.get(guildId);
-    if (!queueData) {
-        queueData = { queue: [], playing: false, currentFile: null };
-        ttsQueues.set(guildId, queueData);
-    }
-
-    queueData.queue.push({ file: filePath });
-
-    if (!queueData.playing) processNextInQueue(guildId);
-    return true;
-}
-
-// ==================== SETTINGS UI ====================
-
-function createSettingsEmbed(guildId) {
-    const s = getSettings(guildId);
-    const ai = AI_PROVIDERS[s.aiProvider];
-    const model = ai?.models.find(m => m.id === s.aiModel) || { name: s.aiModel };
-    
-    // Find voice names
-    const edgeVoice = EDGE_TTS_VOICES.find(v => v.id === s.ttsVoice);
-    const elevenVoice = ELEVENLABS_VOICES.find(v => v.id === s.ttsVoiceElevenlabs) || { name: 'MiniMax Clone' };
-
-    return new EmbedBuilder()
-        .setColor(0x5865F2)
-        .setTitle('⚙️ Toing Settings')
-        .addFields(
-            { name: '🧠 AI Provider', value: `**${ai?.name || s.aiProvider}**\n${model.name}`, inline: true },
-            { name: '🔊 TTS (Public)', value: edgeVoice?.name || s.ttsVoice, inline: true },
-            { name: '🎙️ TTS (Admin)', value: elevenVoice?.name || 'Default', inline: true },
-        )
-        .setFooter({ text: 'v3.0.0 • Complete Edition' })
-        .setTimestamp();
-}
-
-function createProviderMenu(guildId) {
-    const s = getSettings(guildId);
-    const opts = Object.entries(AI_PROVIDERS).map(([k, p]) => ({
-        label: p.name, value: k, default: k === s.aiProvider
-    }));
-    return new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder().setCustomId('sel_ai').setPlaceholder('🧠 AI Provider').addOptions(opts)
-    );
-}
-
-function createModelMenu(guildId) {
-    const s = getSettings(guildId);
-    const p = AI_PROVIDERS[s.aiProvider];
-    if (!p) return null;
-
-    const opts = p.models.slice(0, 25).map(m => ({
-        label: m.name.slice(0, 25), value: m.id, default: m.id === s.aiModel
-    }));
-
-    return new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder().setCustomId('sel_model').setPlaceholder('🤖 Model').addOptions(opts)
-    );
-}
-
-// Menu untuk Edge-TTS (semua user)
-function createVoiceMenu(guildId) {
-    const s = getSettings(guildId);
-    
-    const opts = EDGE_TTS_VOICES.slice(0, 25).map(v => ({
-        label: v.name.slice(0, 25),
-        value: v.id,
-        default: v.id === s.ttsVoice
-    }));
-    
-    return new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-            .setCustomId('sel_voice')
-            .setPlaceholder('🔊 Voice (Public - Edge-TTS)')
-            .addOptions(opts)
-    );
-}
-
-// Menu untuk Admin Voice (Puter/ElevenLabs)
-function createElevenlabsVoiceMenu(guildId) {
-    const s = getSettings(guildId);
-    
-    // Gunakan daftar voices yang baru
-    const voices = ELEVENLABS_VOICES;
-    
-    if (!voices || voices.length === 0) return null;
-    
-    // Ambil max 25 suara (limit Discord select menu)
-    const opts = voices.slice(0, 25).map(v => ({
-        label: v.name.slice(0, 25), 
-        value: v.id,
-        description: v.lang === 'id' ? 'Indonesia' : 'English',
-        default: v.id === (s.ttsVoiceElevenlabs || 'gmnazjXOFoOcWA59sd5m')
-    }));
-    
-    return new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-            .setCustomId('sel_voice_elevenlabs')
-            .setPlaceholder('🎙️ Pilih Suara (Admin Only)')
-            .addOptions(opts)
-    );
-}
-
-function createModeButtons(guildId) {
-    const s = getSettings(guildId);
-    return new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('search_toggle').setLabel(s.searchEnabled ? '🔍 Search ON' : '🔍 Search OFF').setStyle(s.searchEnabled ? ButtonStyle.Success : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('grounding_toggle').setLabel(s.geminiGrounding ? '🌐 Grounding ON' : '🌐 Grounding OFF').setStyle(s.geminiGrounding ? ButtonStyle.Success : ButtonStyle.Secondary)
-    );
-}
-
-// ==================== INTERACTION HANDLER ====================
+// ============================================================
+//         INTERACTION HANDLER
+// ============================================================
 
 client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.customId?.startsWith('dm_')) {
@@ -1971,7 +208,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isStringSelectMenu() && !interaction.isButton()) return;
 
     if (!isAdmin(interaction.user.id)) {
-        return interaction.reply({ content: '❌ Admin only', ephemeral: true });
+        return interaction.reply({ content: 'Admin only', ephemeral: true });
     }
 
     const guildId = interaction.guild.id;
@@ -1983,14 +220,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
             if (p?.models[0]) updateSettings(guildId, 'aiModel', p.models[0].id);
         } else if (interaction.customId === 'sel_model') {
             updateSettings(guildId, 'aiModel', interaction.values[0]);
-                } else if (interaction.customId === 'sel_voice') {
+        } else if (interaction.customId === 'sel_voice') {
             updateSettings(guildId, 'ttsVoice', interaction.values[0]);
         } else if (interaction.customId === 'sel_voice_elevenlabs') {
-    if (!isAdmin(interaction.user.id)) {
-        return interaction.reply({ content: '❌ MiniMax hanya untuk Admin', ephemeral: true });
-    }
-    updateSettings(guildId, 'ttsVoiceElevenlabs', interaction.values[0]);
-} else if (interaction.customId === 'search_toggle') {
+            if (!isAdmin(interaction.user.id)) {
+                return interaction.reply({ content: 'Admin only', ephemeral: true });
+            }
+            updateSettings(guildId, 'ttsVoiceElevenlabs', interaction.values[0]);
+        } else if (interaction.customId === 'search_toggle') {
             const s = getSettings(guildId);
             updateSettings(guildId, 'searchEnabled', !s.searchEnabled);
         } else if (interaction.customId === 'grounding_toggle') {
@@ -1998,650 +235,26 @@ client.on(Events.InteractionCreate, async (interaction) => {
             updateSettings(guildId, 'geminiGrounding', !s.geminiGrounding);
         }
 
-        const comps = [createProviderMenu(guildId), createModelMenu(guildId), createVoiceMenu(guildId), createModeButtons(guildId)].filter(Boolean);
-        await interaction.update({ embeds: [createSettingsEmbed(guildId)], components: comps });
+        const comps = [
+            createProviderMenu(guildId),
+            createModelMenu(guildId),
+            createVoiceMenu(guildId),
+            createModeButtons(guildId)
+        ].filter(Boolean);
+        
+        await interaction.update({ 
+            embeds: [createSettingsEmbed(guildId)], 
+            components: comps 
+        });
 
     } catch (e) {
-        interaction.reply({ content: `❌ ${e.message}`, ephemeral: true }).catch(() => {});
+        interaction.reply({ content: `Error: ${e.message}`, ephemeral: true }).catch(() => {});
     }
 });
 
-// ==================== COMMAND HANDLERS ====================
-
-async function transcribeWithGroq(audioFilePath) {
-    const apiKey = CONFIG.groqApiKey;
-    if (!apiKey) throw new Error('No Groq API key for transcription');
-    
-    // Check file exists and size
-    if (!fs.existsSync(audioFilePath)) {
-        throw new Error('Audio file not found');
-    }
-    
-    const fileSize = fs.statSync(audioFilePath).size;
-    console.log(`📤 Sending to Whisper: ${audioFilePath} (${fileSize} bytes)`);
-    
-    if (fileSize < 1000) {
-        throw new Error('Audio file too small');
-    }
-    
-    const formData = new FormData();
-    formData.append('file', fs.createReadStream(audioFilePath));
-    formData.append('model', CONFIG.voiceAI.whisperModel);
-    formData.append('response_format', 'verbose_json');
-    
-    // Jangan set language agar auto-detect
-    // formData.append('language', 'id');
-    
-    const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${apiKey}`
-        },
-        body: formData
-    });
-    
-    if (!response.ok) {
-        const error = await response.text();
-        console.error('❌ Whisper error:', error);
-        throw new Error(`Whisper API error: ${response.status}`);
-    }
-    
-    const result = await response.json();
-    
-    console.log(`🗣️ Whisper result:`, JSON.stringify(result).slice(0, 200));
-    
-    return result.text || '';
-}
-
-function setupVoiceReceiver(connection, guildId, textChannel) {
-    const receiver = connection.receiver;
-    
-    receiver.speaking.on('start', (userId) => {
-        const session = voiceAISessions.get(guildId);
-        if (!session?.enabled) return;
-        if (processingUsers.has(userId)) return;
-        
-        startRecording(connection, userId, guildId, textChannel);
-    });
-}
-
-function startRecording(connection, userId, guildId, textChannel) {
-    if (voiceRecordings.has(userId)) return;
-    
-    // Check if bot is speaking
-    const session = voiceAISessions.get(guildId);
-    if (session?.isSpeaking) return;
-    
-    const receiver = connection.receiver;
-    
-    // Subscribe to opus stream
-    const opusStream = receiver.subscribe(userId, {
-        end: {
-            behavior: EndBehaviorType.AfterSilence,
-            duration: 2000
-        }
-    });
-    
-    // Initialize decoder
-    const opusDecoder = new prism.opus.Decoder({
-        frameSize: 960,
-        channels: 2,
-        rate: 48000
-    });
-    
-    const chunks = [];
-    const startTime = Date.now();
-    
-    const recordingData = {
-        chunks,
-        startTime,
-        stream: opusStream,
-        decoder: opusDecoder,
-        timeout: null
-    };
-    
-    voiceRecordings.set(userId, recordingData);
-    
-    console.log(`🎙️ Started recording user ${userId}`);
-    
-    // Error handling untuk stream
-    const handleError = (err, source) => {
-        // Ignore common benign errors
-        if (err.message === 'stream.push() after EOF') return;
-        if (err.message.includes('compressed data')) return;
-        console.error(`${source} error user ${userId}:`, err.message);
-        cleanupRecording(userId);
-    };
-
-    opusStream.on('error', (err) => handleError(err, 'Audio stream'));
-    opusDecoder.on('error', (err) => handleError(err, 'Opus decoder'));
-    
-    // Pipe stream
-    opusStream.pipe(opusDecoder);
-    
-    opusDecoder.on('data', (chunk) => {
-        if (Date.now() - startTime < CONFIG.voiceAI.maxRecordingDuration) {
-            chunks.push(chunk);
-        }
-    });
-    
-    opusDecoder.on('end', async () => {
-        cleanupRecording(userId);
-        
-        const duration = Date.now() - startTime;
-        if (duration < CONFIG.voiceAI.minAudioLength || chunks.length === 0) {
-            return;
-        }
-        
-        const pcmBuffer = Buffer.concat(chunks);
-        await processVoiceInput(userId, guildId, pcmBuffer, textChannel);
-    });
-    
-    // Safety timeout
-    recordingData.timeout = setTimeout(() => {
-        if (voiceRecordings.has(userId)) {
-            console.log(`⏱️ Recording timeout user ${userId}`);
-            cleanupRecording(userId);
-        }
-    }, CONFIG.voiceAI.maxRecordingDuration + 1000);
-}
-
-// Helper function untuk cleanup bersih
-function cleanupRecording(userId) {
-    const recording = voiceRecordings.get(userId);
-    if (!recording) return;
-    
-    if (recording.timeout) clearTimeout(recording.timeout);
-    
-    try { recording.stream.destroy(); } catch {}
-    try { recording.decoder.destroy(); } catch {}
-    
-    voiceRecordings.delete(userId);
-}
-
-async function processVoiceInput(userId, guildId, audioBuffer, textChannel) {
-    if (processingUsers.has(userId)) return;
-    
-    // Prevent bot hearing itself
-    const session = voiceAISessions.get(guildId);
-    if (session?.isSpeaking) {
-        return;
-    }
-    
-    processingUsers.add(userId);
-    
-    const tempFile = path.join(CONFIG.tempPath, `voice_${userId}_${Date.now()}.ogg`);
-    
-    try {
-        await convertOpusToOgg(audioBuffer, tempFile);
-        
-        const fileStats = fs.statSync(tempFile);
-        if (fileStats.size < 1000) {
-            return;
-        }
-        
-        const transcription = await transcribeWithGroq(tempFile);
-        
-        if (!transcription || transcription.trim().length < 3) {
-            return;
-        }
-        
-        console.log(`🎤 [${userId}]: "${transcription}"`);
-        
-        const text = transcription.toLowerCase().trim();
-        
-        // Skip noise/filler words only
-        const skipPhrases = [
-            'hmm', 'uhh', 'ehh', 'ahh', 'umm',
-            'hm', 'uh', 'eh', 'ah', 'um',
-            'terima kasih', 'thank you', 'thanks',
-            'you\'re welcome', 'sama-sama',
-            'oke', 'okay', 'ok',
-            'hvað', 'það',  // Icelandic noise
-            'yes', 'no', 'ya', 'tidak'
-        ];
-        
-        // Also skip if detected as non-Indonesian/English with short duration
-        const validLanguages = ['indonesian', 'english', 'javanese', 'sundanese'];
-        // Check from Whisper result if available
-        
-        if (skipPhrases.includes(text) || text.length < 5) {
-            console.log(`⏭️ Skipped filler: "${text}"`);
-            return;
-        }
-        
-        // Log ke text channel
-        if (textChannel) {
-            textChannel.send(`🎤 **Voice:** ${transcription}`).catch(() => {});
-        }
-        
-        // Mark bot as speaking
-                // Mark bot as speaking (prevent hearing itself)
-        if (session) {
-            session.isSpeaking = true;
-            session.speakingStartedAt = Date.now();
-        }
-        
-        // Call AI
-        console.log(`🤖 Processing: "${transcription}"`);
-        const response = await callAI(guildId, userId, transcription, true);
-        console.log(`✅ AI responded (${response.latency}ms)`);
-        
-        if (textChannel) {
-            const info = `*${response.model} • ${response.latency}ms* 🎙️`;
-            textChannel.send(`${response.text}\n\n-# ${info}`).catch(() => {});
-        }
-        
-              const s = getSettings(guildId);
-        const voice = isAdmin(userId) ? (s.ttsVoiceElevenlabs || s.ttsVoice) : s.ttsVoice;
-        const ttsFile = await generateTTS(response.text, voice, userId);
-        await playTTSInVoice(guildId, ttsFile);
-        
-                console.log(`✅ Voice response complete!`);
-        
-        // Reset speaking lock setelah TTS selesai + delay
-        setTimeout(() => {
-            const session = voiceAISessions.get(guildId);
-            if (session) {
-                session.isSpeaking = false;
-                console.log(`🔓 Ready to listen again`);
-            }
-        }, 3000);
-        
-    } catch (error) {
-        console.error('❌ Voice error:', error.message);
-        } finally {
-        cleanupFile(tempFile);
-        processingUsers.delete(userId);
-    }
-}
-
-async function convertOpusToOgg(opusBuffer, outputPath) {
-    return new Promise((resolve, reject) => {
-        try {
-            console.log(`📁 Raw audio size: ${opusBuffer.length} bytes`);
-            
-            // Buffer sudah dalam format PCM dari opus decoder
-            // Convert ke WAV untuk Whisper (16kHz mono)
-            
-            const tempPcm = outputPath.replace('.ogg', '.pcm');
-            fs.writeFileSync(tempPcm, opusBuffer);
-            
-            // Convert PCM ke WAV dengan FFmpeg
-            const ffmpegCmd = `ffmpeg -y -f s16le -ar 48000 -ac 2 -i "${tempPcm}" -ar 16000 -ac 1 -f wav "${outputPath}" 2>/dev/null`;
-            
-            exec(ffmpegCmd, { timeout: 15000 }, (error) => {
-                cleanupFile(tempPcm);
-                
-                if (error || !fs.existsSync(outputPath) || fs.statSync(outputPath).size < 1000) {
-                    // Fallback: create WAV with header manually
-                    console.log('⚠️ FFmpeg failed, creating WAV manually');
-                    
-                    const wavHeader = createWavHeader(opusBuffer.length, 48000, 2, 16);
-                    const wavFile = Buffer.concat([wavHeader, opusBuffer]);
-                    fs.writeFileSync(outputPath, wavFile);
-                }
-                
-                const finalSize = fs.existsSync(outputPath) ? fs.statSync(outputPath).size : 0;
-                console.log(`✅ Audio converted: ${finalSize} bytes`);
-                
-                resolve(outputPath);
-            });
-            
-        } catch (err) {
-            console.error('❌ Conversion error:', err.message);
-            fs.writeFileSync(outputPath, opusBuffer);
-            resolve(outputPath);
-        }
-    });
-}
-
-function createWavHeader(dataLength, sampleRate, numChannels, bitsPerSample) {
-    const byteRate = sampleRate * numChannels * bitsPerSample / 8;
-    const blockAlign = numChannels * bitsPerSample / 8;
-    const buffer = Buffer.alloc(44);
-    
-    buffer.write('RIFF', 0);
-    buffer.writeUInt32LE(36 + dataLength, 4);
-    buffer.write('WAVE', 8);
-    buffer.write('fmt ', 12);
-    buffer.writeUInt32LE(16, 16);
-    buffer.writeUInt16LE(1, 20);
-    buffer.writeUInt16LE(numChannels, 22);
-    buffer.writeUInt32LE(sampleRate, 24);
-    buffer.writeUInt32LE(byteRate, 28);
-    buffer.writeUInt16LE(blockAlign, 32);
-    buffer.writeUInt16LE(bitsPerSample, 34);
-    buffer.write('data', 36);
-    buffer.writeUInt32LE(dataLength, 40);
-    
-    return buffer;
-}
-
-function enableVoiceAI(guildId, textChannel = null) {
-    voiceAISessions.set(guildId, {
-        enabled: true,
-        textChannel: textChannel,
-        startedAt: Date.now(),
-        isSpeaking: false  // ← TAMBAH INI
-    });
-    
-    const conn = voiceConnections.get(guildId);
-    if (conn) {
-        setupVoiceReceiver(conn, guildId, textChannel);
-    }
-}
-
-function disableVoiceAI(guildId) {
-    voiceAISessions.delete(guildId);
-    
-    for (const [userId, recording] of voiceRecordings) {
-        if (recording.stream) {
-            recording.stream.destroy();
-        }
-        if (recording.timeout) {
-            clearTimeout(recording.timeout);
-        }
-    }
-    voiceRecordings.clear();
-}
-
-function isVoiceAIEnabled(guildId) {
-    return voiceAISessions.get(guildId)?.enabled || false;
-}
-
-async function handleAI(msg, query) {
-    const rateCheck = checkRateLimit(msg.author.id);
-    if (!rateCheck.allowed) return msg.reply(`⏳ Wait ${rateCheck.waitTime}s`);
-
-    let inVoice = false;
-    if (msg.member?.voice?.channel) {
-        const result = await joinUserVoiceChannel(msg.member, msg.guild);
-        if (result.success) inVoice = true;
-    }
-
-    await msg.channel.sendTyping();
-
-    try {
-        const response = await callAI(msg.guild.id, msg.author.id, query, inVoice);
-
-        const searchIcon = response.searched ? ` 🔍` : '';
-        const info = `*${response.model} • ${response.latency}ms${searchIcon}*`;
-        const fullResponse = `${response.text}\n\n-# ${info}`;
-
-        const parts = splitMessage(fullResponse);
-        for (let i = 0; i < parts.length; i++) {
-            if (i === 0) await msg.reply(parts[i]);
-            else await msg.channel.send(parts[i]);
-        }
-
-        // TTS untuk voice channel
-                // TTS untuk voice channel
-                // TTS untuk voice channel
-        if (inVoice) {
-            try {
-                const s = getSettings(msg.guild.id);
-                
-                // Admin: Pakai settingan ttsVoiceElevenlabs (bisa ganti lewat menu)
-                // User: Pakai settingan ttsVoice (Edge-TTS)
-                const voice = isAdmin(msg.author.id) 
-                    ? (s.ttsVoiceElevenlabs || 'gmnazjXOFoOcWA59sd5m') 
-                    : (s.ttsVoice || 'id-ID-GadisNeural');
-                
-                const ttsFile = await generateTTS(response.text, voice, msg.author.id);
-                
-                if (ttsFile) {
-                    await playTTSInVoice(msg.guild.id, ttsFile);
-                }
-            } catch (e) {
-                console.error('TTS error:', e.message);
-            }
-        }
-
-    } catch (e) {
-        console.error('AI Error:', e);
-        await msg.reply(`❌ ${e.message}`);
-    }
-}
-
-async function handleSpeak(msg, text) {
-    if (!text) return msg.reply('❓ `.speak Halo dunia`');
-
-    const player = audioPlayers.get(msg.guild.id);
-    if (!player) return msg.reply('❌ Join voice channel first (`.join`)');
-
-    const status = await msg.reply('🔊 Generating...');
-
-    try {
-                const s = getSettings(msg.guild.id);
-        const voice = isAdmin(msg.author.id) ? (s.ttsVoiceElevenlabs || s.ttsVoice) : s.ttsVoice;
-        const ttsFile = await generateTTS(text, voice, msg.author.id);
-        if (ttsFile) {
-            await playTTSInVoice(msg.guild.id, ttsFile);
-            await status.edit('🔊 Playing...');
-        } else {
-            await status.edit('❌ TTS failed');
-        }
-    } catch (e) {
-        await status.edit(`❌ ${e.message}`);
-    }
-}
-
-async function handleURLAuto(msg, urls, originalMessage) {
-    const urlsToFetch = urls.slice(0, 2);
-    
-    let statusMsg = await msg.reply('🔗 Detected URL, reading...');
-    
-    try {
-        const contents = [];
-        
-        for (const url of urlsToFetch) {
-            try {
-                await statusMsg.edit(`💭 Reading: ${new URL(url).hostname}...`);
-                
-                let content;
-                if (url.includes('github.com') && url.includes('/blob/')) {
-                    content = await readGitHubFile(url);
-                } else {
-                    content = await fetchURLClean(url);
-                }
-                
-                if (content && content.length > 100) {
-                    contents.push({ url, content: content.slice(0, 5000) });
-                }
-            } catch (e) {
-                console.error('Failed to fetch:', url, e.message);
-            }
-        }
-        
-        if (contents.length === 0) {
-            return statusMsg.edit('❌ Could not read URL');
-        }
-        
-        await statusMsg.edit(`💭 Analyzing ${contents.length} URL(s)...`);
-        
-        // Build context
-        let contextPrompt = buildContextPrompt(
-            originalMessage.replace(/(https?:\/\/[^\s]+)/g, '').trim() || 'Jelaskan konten dari URL ini',
-            contents,
-            true // Enable thinking mode
-        );
-        
-        // Send to AI
-        const response = await callAI(msg.guild.id, msg.author.id, contextPrompt, false);
-        
-        // Parse thinking
-        const { thinking, answer } = parseThinkingResponse(response.text);
-        
-        // Format response
-        let finalMsg = answer;
-        finalMsg += '\n\n📚 **Source:**\n';
-        finalMsg += contents.map(c => `• ${new URL(c.url).hostname}`).join('\n');
-        
-        // Add thinking as spoiler
-        if (thinking && thinking.length > 20) {
-            finalMsg += `\n\n||💭 **Reasoning:**\n${thinking.slice(0, 1000)}||`;
-        }
-        
-        finalMsg += `\n\n-# ${response.model} • ${response.latency}ms 🔗`;
-        
-        const parts = splitMessage(finalMsg);
-        await statusMsg.edit(parts[0]);
-        
-        for (let i = 1; i < parts.length; i++) {
-            await msg.channel.send(parts[i]);
-        }
-        
-    } catch (e) {
-        await statusMsg.edit(`❌ ${e.message}`);
-    }
-}
-
-async function handleFileRead(msg) {
-    if (msg.attachments.size === 0) {
-        return msg.reply('❓ Upload file yang ingin dibaca');
-    }
-    
-    const attachment = msg.attachments.first();
-    
-    // Check file size
-    if (attachment.size > CONFIG.maxFileSize) {
-        return msg.reply(`❌ File terlalu besar (max ${CONFIG.maxFileSize / 1024 / 1024}MB)`);
-    }
-    
-    const statusMsg = await msg.reply('📄 Reading file...');
-    
-    try {
-        const content = await readFile(attachment);
-        
-        if (!content || content.length < 10) {
-            return statusMsg.edit('❌ Could not read file content');
-        }
-        
-        await statusMsg.edit(`💭 Analyzing ${attachment.name}...`);
-        
-        // Send to AI for analysis
-        const prompt = `Analisis file berikut:\n\nFile: ${attachment.name}\nContent:\n${content.slice(0, 8000)}`;
-        
-        const response = await callAI(msg.guild.id, msg.author.id, prompt, false);
-        
-        let finalMsg = `📄 **${attachment.name}**\n\n${response.text}\n\n-# ${response.model} • ${response.latency}ms`;
-        
-        const parts = splitMessage(finalMsg);
-        await statusMsg.edit(parts[0]);
-        
-        for (let i = 1; i < parts.length; i++) {
-            await msg.channel.send(parts[i]);
-        }
-        
-    } catch (e) {
-        await statusMsg.edit(`❌ ${e.message}`);
-    }
-}
-
-async function handleImageAnalysis(msg) {
-    const images = msg.attachments.filter(a => 
-        a.contentType && a.contentType.startsWith('image/')
-    );
-    
-    if (images.size === 0) {
-        return msg.reply('❓ Upload gambar yang ingin dianalisis');
-    }
-    
-    const image = images.first();
-    
-    // Check image size
-    if (image.size > CONFIG.maxImageSize) {
-        return msg.reply(`❌ Gambar terlalu besar (max ${CONFIG.maxImageSize / 1024 / 1024}MB)`);
-    }
-    
-    const statusMsg = await msg.reply('🖼️ Analyzing image...');
-    
-    try {
-        const analysis = await analyzeImage(image.url, msg.content.replace(CONFIG.prefix + 'analyze', '').trim());
-        
-        let finalMsg = `🖼️ **Image Analysis**\n\n${analysis}\n\n-# Gemini Vision • ${Date.now() - msg.createdTimestamp}ms`;
-        
-        const parts = splitMessage(finalMsg);
-        await statusMsg.edit(parts[0]);
-        
-        for (let i = 1; i < parts.length; i++) {
-            await msg.channel.send(parts[i]);
-        }
-        
-    } catch (e) {
-        await statusMsg.edit(`❌ ${e.message}`);
-    }
-}
-
-async function handleSearchCommand(msg, query) {
-    if (!query) return msg.reply('❓ `.search <query>`');
-    
-    const statusMsg = await msg.reply('🔍 Searching...');
-    
-    try {
-        // Perform search
-        const searchResults = await performSearch(query);
-        
-        if (!searchResults || (!searchResults.urls?.length && !searchResults.facts?.length)) {
-            return statusMsg.edit('❌ No search results found');
-        }
-        
-        await statusMsg.edit(`📖 Reading ${searchResults.urls?.length || 0} sources...`);
-        
-        // Fetch URL contents
-        const contents = [];
-        if (searchResults.urls) {
-            for (const url of searchResults.urls.slice(0, 3)) {
-                try {
-                    const content = await fetchURLClean(url);
-                    if (content) {
-                        contents.push({ url, content: content.slice(0, 3000) });
-                    }
-                } catch (e) {
-                    console.error('Failed to fetch:', url);
-                }
-            }
-        }
-        
-        await statusMsg.edit('💭 Reasoning...');
-        
-        // Build prompt with search results
-        const contextPrompt = buildContextPrompt(query, contents, true);
-        
-        // Get AI response
-        const response = await callAI(msg.guild.id, msg.author.id, contextPrompt, false);
-        
-        // Parse thinking
-        const { thinking, answer } = parseThinkingResponse(response.text);
-        
-        // Format final response
-        let finalMsg = answer;
-        
-        if (contents.length > 0) {
-            finalMsg += '\n\n📚 **Sources:**\n';
-            finalMsg += contents.map(c => `• ${new URL(c.url).hostname}`).join('\n');
-        }
-        
-        if (thinking && thinking.length > 20) {
-            finalMsg += `\n\n||💭 **Reasoning Process:**\n${thinking.slice(0, 1500)}||`;
-        }
-        
-        finalMsg += `\n\n-# ${response.model} • ${response.latency}ms 🔍`;
-        
-        const parts = splitMessage(finalMsg);
-        await statusMsg.edit(parts[0]);
-        
-        for (let i = 1; i < parts.length; i++) {
-            await msg.channel.send(parts[i]);
-        }
-        
-    } catch (e) {
-        await statusMsg.edit(`❌ ${e.message}`);
-    }
-}
-
-// ==================== MESSAGE HANDLER (COMPLETE) ====================
+// ============================================================
+//         MESSAGE HANDLER
+// ============================================================
 
 client.on(Events.MessageCreate, async (msg) => {
     if (msg.author.bot || !msg.guild) return;
@@ -2649,14 +262,14 @@ client.on(Events.MessageCreate, async (msg) => {
     const content = msg.content.trim();
     const urls = detectURLs(content);
     const hasMention = msg.mentions.has(client.user);
-    const hasCommand = content.startsWith(CONFIG.prefix);
+    const hasCommand = content.startsWith(BOT_CONFIG.prefix);
     const hasAttachments = msg.attachments.size > 0;
+    const path = require('path');
     
-    // ========== AUTO FILE/IMAGE DETECTION (Mention + Attachment) ==========
+    // ========== AUTO FILE/IMAGE DETECTION ==========
     if (hasMention && hasAttachments) {
         const query = content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
         
-        // Check for images first
         const images = msg.attachments.filter(a => 
             a.contentType && a.contentType.startsWith('image/')
         );
@@ -2665,7 +278,6 @@ client.on(Events.MessageCreate, async (msg) => {
             return await handleImageAnalysisWithQuery(msg, images.first(), query);
         }
         
-        // Check for document files
         const docs = msg.attachments.filter(a => {
             const ext = path.extname(a.name || '').toLowerCase();
             return SUPPORTED_FILE_EXTENSIONS.includes(ext);
@@ -2691,12 +303,12 @@ client.on(Events.MessageCreate, async (msg) => {
         }
     }
     
-    // ========== PURE MENTION (No attachment, no URL) ==========
+    // ========== PURE MENTION ==========
     if (hasMention && !hasCommand) {
         const query = content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
         
         if (!query) {
-            return msg.reply('👋 Hai! Aku **Aria**, asisten AI-mu!\n\n💡 **Tips:**\n• Mention aku + pertanyaan\n• Upload file/gambar + mention\n• Kirim URL + pertanyaan\n• Ketik `.help` untuk bantuan lengkap');
+            return msg.reply('Hai! Aku Toing, asisten AI-mu!\n\nTips:\n- Mention aku + pertanyaan\n- Upload file/gambar + mention\n- Kirim URL + pertanyaan\n- Ketik .help untuk bantuan lengkap');
         }
         
         return await handleAI(msg, query);
@@ -2705,31 +317,32 @@ client.on(Events.MessageCreate, async (msg) => {
     // ========== COMMAND HANDLER ==========
     if (!hasCommand) return;
 
-    const args = content.slice(CONFIG.prefix.length).trim().split(/ +/);
+    const args = content.slice(BOT_CONFIG.prefix.length).trim().split(/ +/);
     const cmd = args.shift().toLowerCase();
 
     try {
         switch (cmd) {
-            // ===== AI COMMANDS =====
+            // AI Commands
             case 'ai':
             case 'ask':
             case 'chat':
             case 'tanya':
             case 'a':
-                if (!args.join(' ')) return msg.reply('❓ **Penggunaan:** `.ai <pertanyaan>`\n\n**Contoh:**\n• `.ai jelaskan quantum computing`\n• `.ai bagaimana cara belajar programming?`');
+                if (!args.join(' ')) {
+                    return msg.reply('Usage: .ai <question>\n\nExample:\n- .ai jelaskan quantum computing\n- .ai bagaimana cara belajar programming?');
+                }
                 await handleAI(msg, args.join(' '));
                 break;
 
-            // ===== SEARCH COMMAND =====
+            // Search Command
             case 'search':
             case 'cari':
             case 's':
             case 'google':
-                if (!args.join(' ')) return msg.reply('❓ **Penggunaan:** `.search <query>`\n\n**Contoh:**\n• `.search berita teknologi hari ini`\n• `.search harga bitcoin terkini`');
                 await handleSearchCommand(msg, args.join(' '));
                 break;
 
-            // ===== FILE & URL COMMANDS =====
+            // File & URL Commands
             case 'read':
             case 'baca':
             case 'r':
@@ -2746,26 +359,26 @@ client.on(Events.MessageCreate, async (msg) => {
             case 'web':
             case 'fetch':
                 if (!args[0] || !args[0].startsWith('http')) {
-                    return msg.reply('❓ **Penggunaan:** `.url <link>`\n\n**Contoh:**\n• `.url https://example.com/article`\n• `.url https://github.com/user/repo jelaskan kodenya`');
+                    return msg.reply('Usage: .url <link>\n\nExample:\n- .url https://example.com/article\n- .url https://github.com/user/repo jelaskan kodenya');
                 }
                 await handleURLAnalysis(msg, [args[0]], args.slice(1).join(' '));
                 break;
 
-            // ===== VOICE COMMANDS =====
+            // Voice Commands
             case 'join':
             case 'j':
             case 'masuk':
                 const jr = await joinUserVoiceChannel(msg.member, msg.guild);
                 await msg.reply(jr.success 
-                    ? (jr.alreadyConnected ? `✅ Sudah di **${jr.channel.name}**` : `🔊 Bergabung ke **${jr.channel.name}**`) 
-                    : `❌ ${jr.error}`);
+                    ? (jr.alreadyConnected ? `Already in ${jr.channel.name}` : `Joined ${jr.channel.name}`) 
+                    : `Error: ${jr.error}`);
                 break;
 
             case 'leave':
             case 'dc':
             case 'disconnect':
             case 'keluar':
-                await msg.reply(await leaveVoiceChannel(msg.guild) ? '👋 Keluar dari voice channel' : '❌ Tidak ada di voice channel');
+                await msg.reply(await leaveVoiceChannel(msg.guild) ? 'Left voice channel' : 'Not in voice channel');
                 break;
 
             case 'speak':
@@ -2781,126 +394,106 @@ client.on(Events.MessageCreate, async (msg) => {
                 if (player) {
                     player.stop();
                     const queueData = ttsQueues.get(msg.guild.id);
-                    if (queueData) {
-                        queueData.queue = [];
-                    }
-                    await msg.reply('⏹️ Audio dihentikan');
+                    if (queueData) queueData.queue = [];
+                    await msg.reply('Audio stopped');
                 } else {
-                    await msg.reply('❌ Tidak ada yang diputar');
+                    await msg.reply('Nothing playing');
                 }
                 break;
 
-            // ===== VOICE AI COMMANDS =====
+            // Voice AI Commands
             case 'voiceai':
             case 'vai':
             case 'podcast':
-                if (!isAdmin(msg.author.id)) return msg.reply('❌ Admin only');
+                if (!isAdmin(msg.author.id)) return msg.reply('Admin only');
                 
                 const voiceSubCmd = args[0]?.toLowerCase();
                 
                 if (voiceSubCmd === 'on' || voiceSubCmd === 'start') {
-                    const jr = await joinUserVoiceChannel(msg.member, msg.guild);
-                    if (!jr.success) return msg.reply(`❌ ${jr.error}`);
+                    const vjr = await joinUserVoiceChannel(msg.member, msg.guild);
+                    if (!vjr.success) return msg.reply(`Error: ${vjr.error}`);
                     
                     enableVoiceAI(msg.guild.id, msg.channel);
-                     await msg.reply(`🎙️ **Podcast Mode Activated!**\n\n` +
-                    `📍 Channel: **${jr.channel.name}**\n` +
-                    `🗣️ Mode: **Natural Conversation**\n\n` +
-                    `Langsung bicara saja, aku akan mendengar dan menjawab! 🎧`);
+                    await msg.reply(`Podcast Mode Activated!\n\nChannel: ${vjr.channel.name}\nMode: Natural Conversation\n\nLangsung bicara saja, aku akan mendengar dan menjawab!`);
                         
                 } else if (voiceSubCmd === 'off' || voiceSubCmd === 'stop') {
                     disableVoiceAI(msg.guild.id);
-                    await msg.reply('🔇 Voice AI dinonaktifkan');
+                    await msg.reply('Voice AI disabled');
                     
                 } else if (voiceSubCmd === 'status') {
                     const enabled = isVoiceAIEnabled(msg.guild.id);
-                    const session = voiceAISessions.get(msg.guild.id);
                     
-                    if (enabled && session) {
-                        const uptime = Math.floor((Date.now() - session.startedAt) / 1000);
-                        await msg.reply(`🎙️ **Voice AI Status**\n\n` +
-                            `Status: 🟢 Active\n` +
-                            `Uptime: ${uptime}s\n` +
-                            `Wake word: "${CONFIG.voiceAI.wakeWord}"`);
+                    if (enabled) {
+                        await msg.reply(`Voice AI Status\n\nStatus: Active`);
                     } else {
-                        await msg.reply(`🎙️ **Voice AI Status**\n\nStatus: 🔴 Inactive\n\nGunakan \`.voiceai on\` untuk mengaktifkan.`);
+                        await msg.reply(`Voice AI Status\n\nStatus: Inactive\n\nUse .voiceai on to activate.`);
                     }
                     
                 } else {
-                    await msg.reply(`🎙️ **Voice AI Commands**\n\n` +
-                        `\`.voiceai on\` - Aktifkan mode podcast\n` +
-                        `\`.voiceai off\` - Matikan voice AI\n` +
-                        `\`.voiceai status\` - Cek status\n\n` +
-                        `**Cara pakai:**\n` +
-                        `1. Join voice channel\n` +
-                        `2. Ketik \`.voiceai on\`\n` +
-                        `3. Bicara: *"${CONFIG.voiceAI.wakeWord}, [pertanyaan]"*\n` +
-                        `4. Bot akan menjawab via voice!`);
+                    await msg.reply(`Voice AI Commands\n\n.voiceai on - Activate podcast mode\n.voiceai off - Disable voice AI\n.voiceai status - Check status\n\nHow to use:\n1. Join voice channel\n2. Type .voiceai on\n3. Speak naturally\n4. Bot will respond via voice!`);
                 }
                 break;
                 
             case 'listen':
             case 'dengar':
-                if (!isAdmin(msg.author.id)) return msg.reply('❌ Admin only');
+                if (!isAdmin(msg.author.id)) return msg.reply('Admin only');
                 
                 const ljr = await joinUserVoiceChannel(msg.member, msg.guild);
-                if (!ljr.success) return msg.reply(`❌ ${ljr.error}`);
+                if (!ljr.success) return msg.reply(`Error: ${ljr.error}`);
                 
                 enableVoiceAI(msg.guild.id, msg.channel);
-                await msg.reply(`👂 Listening di **${ljr.channel.name}**...\n\nKatakan *"${CONFIG.voiceAI.wakeWord}"* untuk berbicara denganku!`);
+                await msg.reply(`Listening in ${ljr.channel.name}...`);
                 break;
 
-            // ===== SETTINGS COMMANDS =====
-                        // ============================================================
-            //         RENDER COMMANDS (NEW)
-            // ============================================================
+            // Render Commands
             case 'render':
             case 'rnd':
                 if (!renderAPI) {
-                    return msg.reply('❌ Render API tidak dikonfigurasi.\n\nTambahkan `RENDER_API_KEY` dan `RENDER_OWNER_ID` di environment variables.');
+                    return msg.reply('Render API not configured.\n\nAdd RENDER_API_KEY and RENDER_OWNER_ID to environment variables.');
                 }
                 if (!isAdmin(msg.author.id)) {
-                    return msg.reply('❌ Command ini hanya untuk Admin');
+                    return msg.reply('Admin only');
                 }
                 await renderCommands.handle(msg, args, renderAPI);
                 break;
 
-            // ============================================================
-            //         GITHUB COMMANDS (NEW)
-            // ============================================================
+            // GitHub Commands
             case 'github':
             case 'gh':
             case 'git':
                 if (!githubAPI) {
-                    return msg.reply('❌ GitHub API tidak dikonfigurasi.\n\nTambahkan `GITHUB_TOKEN` di environment variables.');
+                    return msg.reply('GitHub API not configured.\n\nAdd GITHUB_TOKEN to environment variables.');
                 }
                 if (!isAdmin(msg.author.id)) {
-                    return msg.reply('❌ Command ini hanya untuk Admin');
+                    return msg.reply('Admin only');
                 }
                 await githubCommands.handle(msg, args, githubAPI);
                 break;
             
+            // Settings Commands
             case 'settings':
             case 'config':
             case 'set':
             case 'pengaturan':
-                if (!isAdmin(msg.author.id)) return msg.reply('❌ Hanya admin yang bisa mengakses pengaturan');
+                if (!isAdmin(msg.author.id)) return msg.reply('Admin only');
+                
                 const comps = [
                     createProviderMenu(msg.guild.id),
                     createModelMenu(msg.guild.id),
                     createVoiceMenu(msg.guild.id)
                 ];
                 
-                // Tambah ElevenLabs menu jika user adalah admin
-                if (isAdmin(msg.author.id) && CONFIG.minimax?.apiKey) {
-    comps.push(createElevenlabsVoiceMenu(msg.guild.id));
-}
+                if (isAdmin(msg.author.id) && BOT_CONFIG.minimax?.apiKey) {
+                    comps.push(createElevenlabsVoiceMenu(msg.guild.id));
+                }
                 
                 comps.push(createModeButtons(msg.guild.id));
                 
-                // Discord limit 5 action rows
                 const finalComps = comps.filter(Boolean).slice(0, 5);
-                await msg.reply({ embeds: [createSettingsEmbed(msg.guild.id)], components: comps });
+                await msg.reply({ 
+                    embeds: [createSettingsEmbed(msg.guild.id)], 
+                    components: finalComps 
+                });
                 break;
 
             case 'clear':
@@ -2909,34 +502,34 @@ client.on(Events.MessageCreate, async (msg) => {
             case 'lupa':
             case 'hapus':
                 clearConversation(msg.guild.id, msg.author.id);
-                await msg.reply('🗑️ Memory percakapan dihapus! Aku sudah lupa pembicaraan sebelumnya.');
+                await msg.reply('Conversation memory cleared!');
                 break;
 
-            // ===== API MANAGER COMMANDS =====
+            // API Manager Commands
             case 'manage':
             case 'apimanager':
             case 'manager':
             case 'api':
-                if (!isAdmin(msg.author.id)) return msg.reply('❌ Hanya admin');
+                if (!isAdmin(msg.author.id)) return msg.reply('Admin only');
                 await manager.showMainMenu(msg);
                 break;
 
             case 'listapi':
             case 'apis':
-                if (!isAdmin(msg.author.id)) return msg.reply('❌ Hanya admin');
+                if (!isAdmin(msg.author.id)) return msg.reply('Admin only');
                 await manager.quickListApi(msg);
                 break;
 
             case 'syncmodels':
-                if (!isAdmin(msg.author.id)) return msg.reply('❌ Hanya admin');
+                if (!isAdmin(msg.author.id)) return msg.reply('Admin only');
                 await manager.quickSyncModels(msg, args[0]);
                 break;
 
-            // ===== INFO COMMANDS =====
+            // Info Commands
             case 'status':
             case 'stats':
             case 'info':
-                await handleStatusCommand(msg);
+                await handleStatusCommand(msg, client, startTime, manager);
                 break;
 
             case 'help':
@@ -2951,7 +544,7 @@ client.on(Events.MessageCreate, async (msg) => {
             case 'p':
                 const latency = Date.now() - msg.createdTimestamp;
                 const wsLatency = client.ws.ping;
-                await msg.reply(`🏓 **Pong!**\n\`\`\`\nLatency   : ${latency}ms\nWebSocket : ${wsLatency}ms\nStatus    : ${latency < 200 ? '🟢 Excellent' : latency < 500 ? '🟡 Good' : '🔴 Slow'}\n\`\`\``);
+                await msg.reply(`Pong!\n\nLatency: ${latency}ms\nWebSocket: ${wsLatency}ms\nStatus: ${latency < 200 ? 'Excellent' : latency < 500 ? 'Good' : 'Slow'}`);
                 break;
 
             case 'model':
@@ -2960,1563 +553,40 @@ client.on(Events.MessageCreate, async (msg) => {
                 break;
 
             default:
-                // Unknown command - suggest help
-                if (cmd.length > 0 && cmd.length < 20) {
-                    // Don't respond to random text that starts with prefix
-                }
                 break;
         }
     } catch (e) {
         console.error('Command error:', e);
-        msg.reply(`❌ Terjadi error: ${e.message}`).catch(() => {});
+        msg.reply(`Error: ${e.message}`).catch(() => {});
     }
 });
 
-// ==================== SUPPORTED FILE TYPES ====================
-
-const SUPPORTED_FILE_EXTENSIONS = [
-    // Text & Code
-    '.txt', '.md', '.markdown', '.rst',
-    '.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs',
-    '.py', '.pyw', '.pyi',
-    '.java', '.kt', '.kts', '.scala',
-    '.c', '.cpp', '.cc', '.cxx', '.h', '.hpp',
-    '.cs', '.fs', '.vb',
-    '.go', '.rs', '.swift', '.m', '.mm',
-    '.rb', '.php', '.pl', '.pm',
-    '.r', '.R', '.rmd',
-    '.sql', '.prisma',
-    '.sh', '.bash', '.zsh', '.fish', '.ps1', '.bat', '.cmd',
-    '.lua', '.vim', '.el',
-    '.asm', '.s',
-    // Config & Data
-    '.json', '.jsonc', '.json5',
-    '.yaml', '.yml',
-    '.xml', '.xsl', '.xsd',
-    '.toml', '.ini', '.cfg', '.conf',
-    '.env', '.env.local', '.env.example',
-    '.properties',
-    '.csv', '.tsv',
-    // Web
-    '.html', '.htm', '.xhtml',
-    '.css', '.scss', '.sass', '.less', '.styl',
-    '.vue', '.svelte', '.astro',
-    // Documents
-    '.pdf',
-    '.docx', '.doc',
-    '.xlsx', '.xls',
-    '.pptx', '.ppt',
-    '.odt', '.ods', '.odp',
-    '.rtf',
-    // Other
-    '.log', '.diff', '.patch',
-    '.dockerfile', '.containerfile',
-    '.gitignore', '.gitattributes',
-    '.editorconfig', '.prettierrc', '.eslintrc',
-    'makefile', 'cmakelists.txt', '.cmake',
-    '.gradle', '.sbt', 'pom.xml', 'build.xml'
-];
-
-// ==================== ENHANCED FILE READING ====================
-
-async function readFile(attachment) {
-    const response = await fetch(attachment.url, { timeout: 30000 });
-    
-    if (!response.ok) {
-        throw new Error(`Failed to download file: HTTP ${response.status}`);
-    }
-    
-    const buffer = await response.buffer();
-    const ext = path.extname(attachment.name || '').toLowerCase();
-    const filename = attachment.name || 'unknown';
-    
-    console.log(`📄 Reading file: ${filename} (${ext}, ${buffer.length} bytes)`);
-    
-    // Detect by extension
-    switch (ext) {
-        // PDF
-        case '.pdf':
-            return await readPDFFile(buffer);
-            
-        // Word Documents
-        case '.docx':
-            return await readDOCXFile(buffer);
-        case '.doc':
-            return await readDOCFile(buffer);
-            
-        // Excel/Spreadsheet
-        case '.xlsx':
-        case '.xls':
-        case '.csv':
-        case '.ods':
-            return await readExcelFile(buffer, ext);
-            
-        // PowerPoint
-        case '.pptx':
-        case '.ppt':
-            return await readPPTXFile(buffer);
-            
-        // JSON with formatting
-        case '.json':
-        case '.jsonc':
-        case '.json5':
-            return formatJSONContent(buffer.toString('utf-8'));
-            
-        // All text-based files
-        default:
-            if (isTextBasedExtension(ext)) {
-                return readTextFile(buffer);
-            }
-            
-            // Try to detect if it's text
-            if (isLikelyText(buffer)) {
-                return readTextFile(buffer);
-            }
-            
-            throw new Error(`Tipe file tidak didukung: ${ext}\n\nFile yang didukung:\n• Dokumen: PDF, Word, Excel, PowerPoint\n• Code: JS, Python, Java, C++, dll\n• Data: JSON, YAML, XML, CSV\n• Text: TXT, MD, LOG, dll`);
-    }
-}
-
-function isTextBasedExtension(ext) {
-    const textExts = [
-        '.txt', '.md', '.markdown', '.rst', '.log', '.diff', '.patch',
-        '.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs',
-        '.py', '.pyw', '.pyi', '.rb', '.php', '.pl', '.pm',
-        '.java', '.kt', '.kts', '.scala', '.groovy',
-        '.c', '.cpp', '.cc', '.cxx', '.h', '.hpp', '.hxx',
-        '.cs', '.fs', '.vb',
-        '.go', '.rs', '.swift', '.m', '.mm',
-        '.r', '.R', '.rmd', '.jl',
-        '.sql', '.prisma', '.graphql', '.gql',
-        '.sh', '.bash', '.zsh', '.fish', '.ps1', '.bat', '.cmd',
-        '.lua', '.vim', '.el', '.clj', '.cljs', '.edn',
-        '.asm', '.s', '.wasm', '.wat',
-        '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf', '.properties',
-        '.xml', '.xsl', '.xsd', '.svg', '.html', '.htm', '.xhtml',
-        '.css', '.scss', '.sass', '.less', '.styl',
-        '.vue', '.svelte', '.astro', '.ejs', '.pug', '.hbs',
-        '.env', '.gitignore', '.gitattributes', '.editorconfig',
-        '.dockerfile', '.containerfile',
-        '.tf', '.tfvars', '.hcl',
-        '.makefile', '.cmake', '.gradle', '.sbt'
-    ];
-    return textExts.includes(ext.toLowerCase()) || ext === '';
-}
-
-function isLikelyText(buffer) {
-    // Check first 1000 bytes for binary content
-    const sample = buffer.slice(0, Math.min(1000, buffer.length));
-    let nullCount = 0;
-    let controlCount = 0;
-    
-    for (const byte of sample) {
-        if (byte === 0) nullCount++;
-        if (byte < 32 && byte !== 9 && byte !== 10 && byte !== 13) controlCount++;
-    }
-    
-    // If more than 10% null bytes or control chars, probably binary
-    return nullCount < sample.length * 0.1 && controlCount < sample.length * 0.1;
-}
-
-async function readTextFile(buffer) {
-    // Try UTF-8 first
-    let text = buffer.toString('utf-8');
-    
-    // Check for BOM and remove
-    if (text.charCodeAt(0) === 0xFEFF) {
-        text = text.slice(1);
-    }
-    
-    // If garbled, try other encodings
-    if (text.includes('�')) {
-        try {
-            text = buffer.toString('latin1');
-        } catch {
-            // Keep UTF-8 result
-        }
-    }
-    
-    return text;
-}
-
-async function readPDFFile(buffer) {
-    try {
-        const data = await pdfParse(buffer);
-        
-        if (!data.text || data.text.trim().length === 0) {
-            throw new Error('PDF tidak memiliki teks yang bisa diekstrak (mungkin berupa gambar/scan)');
-        }
-        
-        let text = data.text;
-        
-        // Clean up common PDF artifacts
-        text = text
-            .replace(/\f/g, '\n\n--- Page Break ---\n\n')
-            .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
-            .replace(/\n{4,}/g, '\n\n\n')
-            .trim();
-        
-        // Add metadata
-        const meta = [];
-        if (data.info?.Title) meta.push(`Title: ${data.info.Title}`);
-        if (data.info?.Author) meta.push(`Author: ${data.info.Author}`);
-        if (data.numpages) meta.push(`Pages: ${data.numpages}`);
-        
-        if (meta.length > 0) {
-            text = `[PDF Metadata]\n${meta.join('\n')}\n\n[Content]\n${text}`;
-        }
-        
-        return text;
-        
-    } catch (error) {
-        if (error.message.includes('scan') || error.message.includes('gambar')) {
-            throw error;
-        }
-        throw new Error(`Gagal membaca PDF: ${error.message}`);
-    }
-}
-
-async function readDOCXFile(buffer) {
-    try {
-        const result = await mammoth.extractRawText({ buffer });
-        
-        if (!result.value || result.value.trim().length === 0) {
-            throw new Error('Dokumen Word kosong atau tidak memiliki teks');
-        }
-        
-        let text = result.value;
-        
-        // Report any warnings
-        if (result.messages && result.messages.length > 0) {
-            const warnings = result.messages
-                .filter(m => m.type === 'warning')
-                .map(m => m.message)
-                .slice(0, 3);
-            if (warnings.length > 0) {
-                text = `[Catatan: ${warnings.join('; ')}]\n\n${text}`;
-            }
-        }
-        
-        return text;
-        
-    } catch (error) {
-        throw new Error(`Gagal membaca DOCX: ${error.message}`);
-    }
-}
-
-async function readDOCFile(buffer) {
-    // Old .doc format - try to extract text
-    try {
-        // Simple text extraction for old .doc files
-        let text = '';
-        const content = buffer.toString('latin1');
-        
-        // Extract readable text between binary content
-        const readable = content.match(/[\x20-\x7E\n\r\t]{20,}/g);
-        if (readable) {
-            text = readable.join('\n').trim();
-        }
-        
-        if (text.length < 50) {
-            throw new Error('Format .doc lama tidak dapat dibaca dengan baik. Coba konversi ke .docx');
-        }
-        
-        return `[Catatan: Format .doc lama, sebagian konten mungkin hilang]\n\n${text}`;
-        
-    } catch (error) {
-        throw new Error(`File .doc tidak dapat dibaca. Coba konversi ke .docx terlebih dahulu`);
-    }
-}
-
-async function readExcelFile(buffer, ext) {
-    try {
-        const workbook = xlsx.read(buffer, { 
-            type: 'buffer',
-            cellDates: true,
-            cellNF: true
-        });
-        
-        if (!workbook.SheetNames || workbook.SheetNames.length === 0) {
-            throw new Error('File spreadsheet kosong');
-        }
-        
-        let output = [];
-        
-        workbook.SheetNames.forEach((sheetName, idx) => {
-            const sheet = workbook.Sheets[sheetName];
-            
-            // Get range
-            const range = xlsx.utils.decode_range(sheet['!ref'] || 'A1');
-            const rowCount = range.e.r - range.s.r + 1;
-            const colCount = range.e.c - range.s.c + 1;
-            
-            output.push(`\n📊 Sheet ${idx + 1}: "${sheetName}" (${rowCount} rows × ${colCount} columns)`);
-            output.push('─'.repeat(50));
-            
-            // Convert to array of arrays
-            const data = xlsx.utils.sheet_to_json(sheet, { 
-                header: 1, 
-                defval: '',
-                blankrows: false 
-            });
-            
-            if (data.length === 0) {
-                output.push('(Sheet kosong)');
-                return;
-            }
-            
-            // Format as table
-            data.slice(0, 100).forEach((row, rowIdx) => {
-                if (Array.isArray(row)) {
-                    const formattedRow = row.map(cell => {
-                        if (cell === null || cell === undefined) return '';
-                        if (cell instanceof Date) return cell.toLocaleDateString('id-ID');
-                        return String(cell).slice(0, 50);
-                    }).join(' | ');
-                    
-                    output.push(`Row ${rowIdx + 1}: ${formattedRow}`);
-                    
-                    // Add separator after header
-                    if (rowIdx === 0) {
-                        output.push('─'.repeat(50));
-                    }
-                }
-            });
-            
-            if (data.length > 100) {
-                output.push(`\n... dan ${data.length - 100} baris lainnya`);
-            }
-        });
-        
-        return output.join('\n');
-        
-    } catch (error) {
-        throw new Error(`Gagal membaca spreadsheet: ${error.message}`);
-    }
-}
-
-async function readPPTXFile(buffer) {
-    try {
-        // PowerPoint files are ZIP archives with XML content
-        const JSZip = require('jszip');
-        const zip = await JSZip.loadAsync(buffer);
-        
-        let slides = [];
-        let slideNum = 1;
-        
-        // Read slide content
-        for (const [filename, file] of Object.entries(zip.files)) {
-            if (filename.match(/ppt\/slides\/slide\d+\.xml$/)) {
-                const content = await file.async('string');
-                
-                // Extract text from XML
-                const textMatches = content.match(/<a:t>([^<]*)<\/a:t>/g) || [];
-                const texts = textMatches.map(m => m.replace(/<\/?a:t>/g, '').trim()).filter(t => t);
-                
-                if (texts.length > 0) {
-                    slides.push(`\n📑 Slide ${slideNum}:\n${texts.join('\n')}`);
-                }
-                slideNum++;
-            }
-        }
-        
-        if (slides.length === 0) {
-            throw new Error('Tidak dapat mengekstrak teks dari PowerPoint');
-        }
-        
-        return `[PowerPoint - ${slides.length} slides]\n${slides.join('\n\n')}`;
-        
-    } catch (error) {
-        if (error.message.includes('jszip')) {
-            throw new Error('PowerPoint reader tidak tersedia');
-        }
-        throw new Error(`Gagal membaca PowerPoint: ${error.message}`);
-    }
-}
-
-function formatJSONContent(text) {
-    try {
-        // Remove comments for JSONC
-        const cleaned = text.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '');
-        const parsed = JSON.parse(cleaned);
-        return JSON.stringify(parsed, null, 2);
-    } catch {
-        // Return original if can't parse
-        return text;
-    }
-}
-
-// ==================== ENHANCED URL READING ====================
-
-async function fetchURLClean(url, options = {}) {
-    const { maxLength = 10000, timeout = 20000 } = options;
-    
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeout);
-        
-        const response = await fetch(url, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none',
-                'Sec-Fetch-User': '?1'
-            },
-            signal: controller.signal,
-            redirect: 'follow',
-            follow: 5
-        });
-        
-        clearTimeout(timeoutId);
-
-        // ... (sisanya tetap sama)
-        
-        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        
-        const contentType = response.headers.get('content-type') || '';
-        
-        if (contentType.includes('application/json')) {
-            const json = await response.json();
-            return { type: 'json', content: JSON.stringify(json, null, 2).slice(0, maxLength) };
-        }
-        
-        if (contentType.includes('text/plain')) {
-            const text = await response.text();
-            return { type: 'text', content: text.slice(0, maxLength) };
-        }
-        
-        const html = await response.text();
-        const $ = cheerio.load(html);
-        
-        const metadata = {
-            title: $('title').text().trim() || $('meta[property="og:title"]').attr('content') || '',
-            description: $('meta[name="description"]').attr('content') || '',
-            author: $('meta[name="author"]').attr('content') || ''
-        };
-        
-        $('script, style, noscript, iframe, svg, nav, header, footer, aside, .ad, .ads, .sidebar, .comments, .share, #ad, #ads').remove();
-        
-        let mainContent = '';
-        const selectors = ['article', 'main', '.post-content', '.entry-content', '.article-body', '#content', '.content'];
-        
-        for (const sel of selectors) {
-            const el = $(sel).first();
-            if (el.length && el.text().trim().length > 200) {
-                mainContent = el.text();
-                break;
-            }
-        }
-        
-        if (!mainContent || mainContent.length < 200) mainContent = $('body').text();
-        
-        mainContent = mainContent.replace(/\s+/g, ' ').replace(/\n\s*\n/g, '\n\n').trim();
-        
-        let output = metadata.title ? `📰 **${metadata.title}**\n\n` : '';
-        output += mainContent;
-        
-        return { type: 'html', title: metadata.title, content: output.slice(0, maxLength) };
-        
-    } catch (error) {
-        if (error.name === 'AbortError') throw new Error('Timeout');
-        throw error;
-    }
-}
-
-async function readGitHubContent(url) {
-    const urlObj = new URL(url);
-    const pathParts = urlObj.pathname.split('/').filter(Boolean);
-    
-    // GitHub file URL: /owner/repo/blob/branch/path/to/file
-    if (pathParts.length >= 4 && pathParts[2] === 'blob') {
-        const rawUrl = url
-            .replace('github.com', 'raw.githubusercontent.com')
-            .replace('/blob/', '/');
-        
-        const response = await fetch(rawUrl, { timeout: 15000 });
-        if (!response.ok) throw new Error(`Failed to fetch: HTTP ${response.status}`);
-        
-        const content = await response.text();
-        const filename = pathParts[pathParts.length - 1];
-        
-        return {
-            type: 'github-file',
-            filename: filename,
-            content: content
-        };
-    }
-    
-    // GitHub repo main page: /owner/repo
-    if (pathParts.length === 2) {
-        // Try to fetch README
-        const readmeUrls = [
-            `https://raw.githubusercontent.com/${pathParts[0]}/${pathParts[1]}/main/README.md`,
-            `https://raw.githubusercontent.com/${pathParts[0]}/${pathParts[1]}/master/README.md`,
-            `https://raw.githubusercontent.com/${pathParts[0]}/${pathParts[1]}/main/readme.md`,
-            `https://raw.githubusercontent.com/${pathParts[0]}/${pathParts[1]}/master/readme.md`
-        ];
-        
-        for (const readmeUrl of readmeUrls) {
-            try {
-                const response = await fetch(readmeUrl, { timeout: 10000 });
-                if (response.ok) {
-                    const content = await response.text();
-                    return {
-                        type: 'github-readme',
-                        repo: `${pathParts[0]}/${pathParts[1]}`,
-                        content: content
-                    };
-                }
-            } catch {
-                continue;
-            }
-        }
-        
-        // Fallback to regular fetch
-        return await fetchURLClean(url);
-    }
-    
-    // GitHub directory or other: fallback to regular fetch
-    return await fetchURLClean(url);
-}
-
-async function readStackOverflow(url) {
-    const result = await fetchURLClean(url, { maxLength: 15000 });
-    
-    // StackOverflow specific processing
-    const $ = cheerio.load(result.content);
-    
-    let output = '';
-    
-    // Get question
-    const question = $('.question .s-prose').first().text().trim();
-    const questionTitle = $('h1').first().text().trim();
-    
-    if (questionTitle) output += `❓ **${questionTitle}**\n\n`;
-    if (question) output += `${question}\n\n`;
-    
-    // Get accepted answer
-    const acceptedAnswer = $('.accepted-answer .s-prose').first().text().trim();
-    if (acceptedAnswer) {
-        output += `✅ **Accepted Answer:**\n${acceptedAnswer}\n\n`;
-    }
-    
-    // Get top voted answers
-    $('.answer:not(.accepted-answer)').slice(0, 2).each((i, el) => {
-        const answerText = $(el).find('.s-prose').first().text().trim();
-        const votes = $(el).find('.js-vote-count').first().text().trim();
-        if (answerText) {
-            output += `📝 **Answer (${votes} votes):**\n${answerText.slice(0, 1000)}\n\n`;
-        }
-    });
-    
-    return {
-        type: 'stackoverflow',
-        content: output || result.content
-    };
-}
-
-async function readYouTube(url) {
-    // 1. Extract Video ID
-    let videoId = null;
-    const patterns = [
-        /youtu\.be\/([^?&]+)/,
-        /youtube\.com\/watch\?v=([^&]+)/,
-        /youtube\.com\/embed\/([^?&]+)/,
-        /youtube\.com\/v\/([^?&]+)/,
-        /youtube\.com\/shorts\/([^?&]+)/
-    ];
-    
-    for (const pattern of patterns) {
-        const match = url.match(pattern);
-        if (match) {
-            videoId = match[1];
-            break;
-        }
-    }
-    
-    if (!videoId) throw new Error('Invalid YouTube URL');
-    
-    let output = '';
-    let title = '';
-    let description = '';
-    let transcriptText = '';
-
-    try {
-        // 2. Fetch Halaman YouTube
-        const pageRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-                'Accept-Language': 'en-US,en;q=0.9',
-            }
-        });
-        
-        const html = await pageRes.text();
-
-        // 3. Extract Metadata
-        const titleMatch = html.match(/<meta name="title" content="([^"]+)"/);
-        title = titleMatch ? titleMatch[1] : `Video ${videoId}`;
-        
-        const descMatch = html.match(/"shortDescription":"([^"]+)"/);
-        if (descMatch) description = descMatch[1].replace(/\\n/g, '\n');
-
-        const channelMatch = html.match(/"ownerChannelName":"([^"]+)"/);
-        const channel = channelMatch ? channelMatch[1] : 'Unknown';
-
-        const viewMatch = html.match(/"viewCount":"(\d+)"/);
-        const views = viewMatch ? parseInt(viewMatch[1]).toLocaleString('id-ID') : '-';
-
-        const lengthMatch = html.match(/"lengthSeconds":"(\d+)"/);
-        const duration = lengthMatch ? `${Math.floor(lengthMatch[1]/60)}:${(lengthMatch[1]%60).toString().padStart(2,'0')}` : '-';
-
-        // 4. Extract Transcript / Subtitle (HACK)
-        // YouTube menyimpan subtitle di dalam variabel javascript 'captionTracks'
-        const captionMatch = html.match(/"captionTracks":(\[.*?\])/);
-        
-        if (captionMatch) {
-            const tracks = JSON.parse(captionMatch[1]);
-            // Prioritaskan Bahasa Indonesia, lalu Inggris, lalu yang pertama
-            const track = tracks.find(t => t.languageCode === 'id') || 
-                          tracks.find(t => t.languageCode === 'en') || 
-                          tracks[0];
-
-            if (track && track.baseUrl) {
-                // Fetch XML Transcript
-                const transcriptRes = await fetch(track.baseUrl);
-                const transcriptXml = await transcriptRes.text();
-                
-                // Bersihkan XML tags untuk dapat teks murni
-                transcriptText = transcriptXml
-                    .replace(/<[^>]*>/g, ' ')       // Hapus tag HTML/XML
-                    .replace(/&amp;/g, '&')
-                    .replace(/&#39;/g, "'")
-                    .replace(/&quot;/g, '"')
-                    .replace(/\s+/g, ' ')           // Hapus spasi ganda
-                    .trim();
-            }
-        }
-
-        // 5. Susun Output untuk AI
-        output = `🎬 **${title}**\n`;
-        output += `📺 Channel: ${channel} | 👁️ Views: ${views} | ⏱️ Durasi: ${duration}\n\n`;
-        
-        if (transcriptText) {
-            output += `🗣️ **TRANSKRIP AUDIO (ISI VIDEO):**\n"${transcriptText.slice(0, 15000)}..."\n\n`;
-            output += `*Catatan: Analisis di atas didasarkan pada apa yang diucapkan dalam video.*\n\n`;
-        } else {
-            output += `⚠️ **Tidak ada subtitle/transkrip tersedia.** Analisis hanya berdasarkan deskripsi.\n\n`;
-        }
-
-        output += `📝 **Deskripsi:**\n${description.slice(0, 2000)}`;
-
-    } catch (e) {
-        console.error('YouTube Fetch Error:', e.message);
-        output = `Gagal mengambil data YouTube. ID: ${videoId}`;
-    }
-
-    return {
-        type: 'youtube',
-        videoId: videoId,
-        title: title,
-        content: output
-    };
-}
-
-async function readURL(url) {
-    const domain = new URL(url).hostname;
-    
-    // YouTube
-    if (domain.includes('youtube.com') || domain.includes('youtu.be')) {
-        return await readYouTube(url);
-    }
-    
-    // GitHub
-    if (domain.includes('github.com')) {
-        return await readGitHubContent(url);
-    }
-    
-    // StackOverflow
-    if (domain.includes('stackoverflow.com') || domain.includes('stackexchange.com')) {
-        return await readStackOverflow(url);
-    }
-    
-    // Generic fetch
-    return await fetchURLClean(url);
-}
-
-// ==================== HANDLER FUNCTIONS ====================
-
-async function handleReadCommand(msg, args) {
-    // Check for URL argument
-    if (args.length > 0 && args[0].match(/^https?:\/\//)) {
-        return await handleURLAnalysis(msg, [args[0]], args.slice(1).join(' '));
-    }
-    
-    // Check for attachment
-    if (msg.attachments.size > 0) {
-        const attachment = msg.attachments.first();
-        return await handleFileReadWithQuery(msg, attachment, args.join(' '));
-    }
-    
-    // Check for reply with attachment
-    if (msg.reference) {
-        try {
-            const repliedMsg = await msg.channel.messages.fetch(msg.reference.messageId);
-            if (repliedMsg.attachments.size > 0) {
-                const attachment = repliedMsg.attachments.first();
-                return await handleFileReadWithQuery(msg, attachment, args.join(' '));
-            }
-        } catch {
-            // Ignore fetch error
-        }
-    }
-    
-    // No input
-    await msg.reply(`📄 **Cara menggunakan .read:**
-
-**File Upload:**
-\`.read\` + upload file
-\`.read jelaskan kode ini\` + upload file
-
-**URL:**
-\`.read https://example.com/article\`
-\`.read https://github.com/user/repo/blob/main/file.js jelaskan\`
-
-**Reply:**
-Reply ke pesan dengan attachment + ketik \`.read\`
-
-**Format yang didukung:**
-• 📄 Dokumen: PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx)
-• 💻 Code: JS, Python, Java, C++, Go, Rust, dll
-• 📊 Data: JSON, YAML, XML, CSV
-• ?? Text: TXT, MD, LOG, dll`);
-}
-
-async function handleAnalyzeCommand(msg, args) {
-    if (msg.attachments.size === 0) {
-        // Check for reply
-        if (msg.reference) {
-            try {
-                const repliedMsg = await msg.channel.messages.fetch(msg.reference.messageId);
-                if (repliedMsg.attachments.size > 0) {
-                    const attachment = repliedMsg.attachments.first();
-                    const images = [attachment].filter(a => a.contentType?.startsWith('image/'));
-                    if (images.length > 0) {
-                        return await handleImageAnalysisWithQuery(msg, images[0], args.join(' '));
-                    } else {
-                        return await handleFileReadWithQuery(msg, attachment, args.join(' '));
-                    }
-                }
-            } catch {
-                // Ignore
-            }
-        }
-        
-        return msg.reply(`🔍 **Cara menggunakan .analyze:**
-
-**Gambar:**
-\`.analyze\` + upload gambar
-\`.analyze apa yang ada di gambar ini?\` + upload gambar
-
-**File:**
-\`.analyze\` + upload file
-\`.analyze apakah ada bug di kode ini?\` + upload file
-
-**Reply:**
-Reply ke pesan dengan gambar/file + ketik \`.analyze\``);
-    }
-    
-    const attachment = msg.attachments.first();
-    const images = msg.attachments.filter(a => a.contentType?.startsWith('image/'));
-    
-    if (images.size > 0) {
-        return await handleImageAnalysisWithQuery(msg, images.first(), args.join(' '));
-    } else {
-        return await handleFileReadWithQuery(msg, attachment, args.join(' '));
-    }
-}
-
-async function handleFileReadWithQuery(msg, attachment, query = '') {
-    // Size check
-    if (attachment.size > CONFIG.maxFileSize) {
-        return msg.reply(`❌ File terlalu besar!\n\nMax: ${(CONFIG.maxFileSize / 1024 / 1024).toFixed(1)} MB\nFile: ${(attachment.size / 1024 / 1024).toFixed(2)} MB`);
-    }
-    
-    const statusMsg = await msg.reply(`📄 Membaca **${attachment.name}**...`);
-    
-    try {
-        const content = await readFile(attachment);
-        
-        if (!content || content.trim().length < 10) {
-            return statusMsg.edit('❌ File kosong atau tidak dapat dibaca');
-        }
-        
-        await statusMsg.edit(`💭 Menganalisis **${attachment.name}**...`);
-        
-        // Determine file type for better prompting
-        const ext = path.extname(attachment.name || '').toLowerCase();
-        const isCode = ['.js', '.ts', '.py', '.java', '.c', '.cpp', '.go', '.rs', '.rb', '.php'].includes(ext);
-        const isData = ['.json', '.yaml', '.yml', '.xml', '.csv'].includes(ext);
-        const isDoc = ['.pdf', '.docx', '.doc', '.txt', '.md'].includes(ext);
-        
-        let analysisPrompt = '';
-        
-        if (query) {
-            analysisPrompt = `Berdasarkan file "${attachment.name}" berikut, jawab pertanyaan/permintaan user:\n\n[USER REQUEST]\n${query}\n\n`;
-        } else if (isCode) {
-            analysisPrompt = `Analisis kode dalam file "${attachment.name}":\n1. Jelaskan fungsi utama kode ini\n2. Identifikasi pola/pattern yang digunakan\n3. Berikan saran improvement jika ada\n\n`;
-        } else if (isData) {
-            analysisPrompt = `Analisis data dalam file "${attachment.name}":\n1. Jelaskan struktur data\n2. Identifikasi informasi penting\n3. Berikan ringkasan isi data\n\n`;
-        } else if (isDoc) {
-            analysisPrompt = `Analisis dokumen "${attachment.name}":\n1. Berikan ringkasan isi\n2. Identifikasi poin-poin penting\n3. Jelaskan kesimpulan utama jika ada\n\n`;
-        } else {
-            analysisPrompt = `Analisis file "${attachment.name}" dan jelaskan isinya:\n\n`;
-        }
-        
-        const maxContent = 50000;
-analysisPrompt += `[FILE CONTENT]\n${content.slice(0, maxContent)}`;
-
-if (content.length > maxContent) {
-    analysisPrompt += `\n\n[Note: File terpotong, total ${content.length} karakter]`;
-}
-        
-        // Call AI
-        const response = await callAI(msg.guild.id, msg.author.id, analysisPrompt, false);
-        
-        // Format response
-        let finalMsg = `📄 **${attachment.name}**\n\n${response.text}`;
-        finalMsg += `\n\n-# ${response.model} • ${response.latency}ms`;
-        
-        if (content.length > 1000000) {
-            finalMsg += ` • ⚠️ File terpotong`;
-        }
-        
-        const parts = splitMessage(finalMsg);
-        await statusMsg.edit(parts[0]);
-        
-        for (let i = 1; i < parts.length; i++) {
-            await msg.channel.send(parts[i]);
-        }
-        
-    } catch (error) {
-        console.error('File read error:', error);
-        await statusMsg.edit(`❌ Gagal membaca file: ${error.message}`);
-    }
-}
-
-async function handleImageAnalysisWithQuery(msg, image, query = '') {
-    // Size check
-    if (image.size > CONFIG.maxImageSize) {
-        return msg.reply(`❌ Gambar terlalu besar!\n\nMax: ${(CONFIG.maxImageSize / 1024 / 1024).toFixed(1)} MB\nGambar: ${(image.size / 1024 / 1024).toFixed(2)} MB`);
-    }
-    
-    const statusMsg = await msg.reply(`🖼️ Menganalisis gambar...`);
-    
-    try {
-        const prompt = query || 'Jelaskan gambar ini secara detail dalam Bahasa Indonesia. Identifikasi objek, teks, warna, dan konteks yang terlihat.';
-        
-        const analysis = await analyzeImage(image.url, prompt);
-        
-        let finalMsg = `🖼️ **Analisis Gambar**\n\n${analysis}`;
-        finalMsg += `\n\n-# Gemini Vision • ${Date.now() - msg.createdTimestamp}ms`;
-        
-        const parts = splitMessage(finalMsg);
-        await statusMsg.edit(parts[0]);
-        
-        for (let i = 1; i < parts.length; i++) {
-            await msg.channel.send(parts[i]);
-        }
-        
-    } catch (error) {
-        console.error('Image analysis error:', error);
-        await statusMsg.edit(`❌ Gagal menganalisis gambar: ${error.message}`);
-    }
-}
-
-async function handleURLAnalysis(msg, urls, query = '') {
-    const statusMsg = await msg.reply(`🔗 Menganalisis ${urls.length} URL...`);
-    const startTime = Date.now();
-    
-    try {
-        const contents = [];
-        const failedUrls = [];
-        const metadata = {
-            totalUrls: urls.length,
-            platforms: new Set(),
-            types: new Set()
-        };
-        
-        // ========== STAGE 1: URL Resolution & Content Fetching ==========
-        await statusMsg.edit(`📡 **[1/3]** Mengambil konten dari ${urls.length} sumber...`);
-        
-        // Parallel fetching untuk speed (max 3 URLs)
-        const fetchPromises = urls.slice(0, 3).map(async (url, index) => {
-            try {
-                const hostname = new URL(url).hostname;
-                
-                // Update status untuk URL pertama saja (avoid spam)
-                if (index === 0) {
-                    await statusMsg.edit(`📡 **[1/3]** Membaca: ${hostname}...`);
-                }
-                
-                console.log(`🔍 Processing URL ${index + 1}/${urls.length}: ${hostname}`);
-                
-                // Try special platform resolver first
-                let resolved = null;
-                try {
-                    resolved = await resolveURL(url);
-                } catch (e) {
-                    console.warn(`Resolver failed for ${url}:`, e.message);
-                }
-                
-                // Platform-specific handling
-                if (resolved) {
-                    metadata.platforms.add(resolved.type || 'web');
-                    
-                    if (resolved.success && resolved.content) {
-                        // Direct content from resolver (Twitter, TikTok, etc)
-                        metadata.types.add(resolved.type);
-                        return {
-                            url: url,
-                            hostname: hostname,
-                            type: resolved.type,
-                            title: resolved.title || `${resolved.type.toUpperCase()} Post`,
-                            content: resolved.content,
-                            videoUrl: resolved.videoUrl,
-                            metadata: {
-                                platform: resolved.type,
-                                extractedAt: new Date().toISOString()
-                            }
-                        };
-                    }
-                    
-                    // URL shortener/redirect
-                    if (resolved.success && resolved.finalUrl && resolved.finalUrl !== url) {
-                        console.log(`🔗 Redirect: ${url} → ${resolved.finalUrl}`);
-                        url = resolved.finalUrl; // Update URL to final destination
-                        hostname = new URL(url).hostname;
-                    }
-                    
-                    // Failed with specific error
-                    if (!resolved.success) {
-                        throw new Error(resolved.error || 'Platform blocked');
-                    }
-                }
-                
-                // Fallback: Standard web scraping
-                const result = await readURL(url);
-                
-                if (!result || !result.content || result.content.length < 100) {
-                    throw new Error('Content too short or empty');
-                }
-                
-                metadata.platforms.add('web');
-                metadata.types.add(result.type || 'webpage');
-                
-                return {
-                    url: url,
-                    hostname: hostname,
-                    type: result.type || 'webpage',
-                    title: result.title || result.filename || hostname,
-                    content: result.content,
-                    metadata: {
-                        contentLength: result.content.length,
-                        extractedAt: new Date().toISOString()
-                    }
-                };
-                
-            } catch (error) {
-                console.error(`❌ Failed to fetch ${url}:`, error.message);
-                return {
-                    error: true,
-                    url: url,
-                    hostname: new URL(url).hostname,
-                    errorMessage: error.message
-                };
-            }
-        });
-        
-        // Wait for all fetches to complete
-        const results = await Promise.allSettled(fetchPromises);
-        
-        // Process results
-        results.forEach(result => {
-            if (result.status === 'fulfilled' && result.value) {
-                if (result.value.error) {
-                    failedUrls.push({
-                        url: result.value.url,
-                        error: result.value.errorMessage
-                    });
-                } else {
-                    contents.push(result.value);
-                }
-            } else if (result.status === 'rejected') {
-                console.error('Promise rejected:', result.reason);
-            }
-        });
-        
-        console.log(`✅ Fetched ${contents.length}/${urls.length} URLs successfully`);
-        
-        // Check if we got any content
-        if (contents.length === 0) {
-            let errorMsg = '❌ **Gagal membaca semua URL**\n\n';
-            
-            if (failedUrls.length > 0) {
-                errorMsg += '**Error Details:**\n';
-                failedUrls.forEach(f => {
-                    errorMsg += `• **${f.url.slice(0, 60)}...**\n  └─ ${f.error}\n`;
-                });
-                
-                errorMsg += '\n💡 **Tips:**\n';
-                errorMsg += '• Pastikan URL valid dan dapat diakses\n';
-                errorMsg += '• Beberapa website memblokir bot\n';
-                errorMsg += '• Coba copy-paste konten secara manual\n';
-                errorMsg += '• Atau upload screenshot untuk analisis';
-            }
-            
-            return statusMsg.edit(errorMsg);
-        }
-        
-        // ========== STAGE 2: Content Analysis & Processing ==========
-        await statusMsg.edit(`🧠 **[2/3]** Menganalisis ${contents.length} sumber dengan AI...`);
-        
-        // Build advanced analysis prompt
-        const timestamp = new Date().toLocaleDateString('id-ID', { 
-            dateStyle: 'full', 
-            timeZone: 'Asia/Jakarta' 
-        });
-        
-        let analysisPrompt = `${SYSTEM_PROMPT}
-
-[CURRENT DATE: ${timestamp}]
-
-[ANALYSIS TASK]
-Kamu akan menerima konten dari ${contents.length} sumber berbeda. Lakukan analisis mendalam dengan reasoning step-by-step.
-
-`;
-
-        // Add user query context
-        if (query) {
-            analysisPrompt += `[USER REQUEST]
-"${query}"
-
-Fokus analisis pada pertanyaan/request user di atas.
-
-`;
-        } else {
-            analysisPrompt += `[TASK]
-Lakukan analisis komprehensif dari semua sumber. Berikan rangkuman, insight, dan kesimpulan.
-
-`;
-        }
-
-               // Add simple instructions
-        analysisPrompt += `[INSTRUKSI]
-Analisis konten di bawah, lalu berikan jawaban yang jelas dan terstruktur.
-Langsung jawab dalam Bahasa Indonesia tanpa menggunakan format khusus.
-
-`;
-
-        // Add all sources with metadata
-        analysisPrompt += `[SOURCES - ${contents.length} items]\n\n`;
-        
-        contents.forEach((content, index) => {
-            const sourceNum = index + 1;
-            const preview = content.content.slice(0, 6000); // Lebih panjang untuk context
-            
-            analysisPrompt += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SOURCE #${sourceNum}: ${content.title}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-URL: ${content.url}
-Platform: ${content.type}
-Host: ${content.hostname}
-Content Length: ${content.content.length} chars
-${content.metadata ? `Extracted: ${content.metadata.extractedAt}` : ''}
-
-[CONTENT]
-${preview}
-${content.content.length > 6000 ? '\n...(content truncated)' : ''}
-
-`;
-        });
-        
-        // Add analysis guidelines
-        if (!query) {
-            analysisPrompt += `
-[ANALYSIS GUIDELINES]
-Berdasarkan ${contents.length} sumber di atas, berikan:
-
-📊 **OVERVIEW**
-- Topik utama yang dibahas
-- Kategori konten (berita/tutorial/review/diskusi/dll)
-
-🔍 **KEY FINDINGS**
-- Poin-poin penting dari masing-masing sumber
-- Informasi yang konsisten antar sumber
-- Informasi yang berbeda/bertentangan (jika ada)
-
-💡 **INSIGHTS**
-- Analisis mendalam
-- Pattern atau trend yang terlihat
-- Implikasi atau kesimpulan
-
-⚠️ **CAVEATS**
-- Informasi yang mungkin tidak akurat
-- Bias dari sumber tertentu
-- Informasi yang perlu diverifikasi lebih lanjut
-
-Jawab dalam Bahasa Indonesia yang jelas dan terstruktur.`;
-        }
-        
-        // Call AI with advanced prompt
-        console.log(`🤖 Calling AI with ${analysisPrompt.length} chars prompt...`);
-        const response = await callAI(msg.guild.id, msg.author.id, analysisPrompt, false);
-        
-        // ========== STAGE 3: Response Formatting ==========
-        await statusMsg.edit(`📝 **[3/3]** Menyusun hasil analisis...`);
-        
-        // Parse thinking and answer
-        const { thinking, answer } = parseThinkingResponse(response.text);
-        
-        // Build final message
-        let finalMsg = '';
-        
-        // Add platforms badge if multiple types
-        if (metadata.platforms.size > 1) {
-            const platformIcons = {
-                'twitter': '🐦',
-                'tiktok': '🎵',
-                'instagram': '📸',
-                'youtube': '🎬',
-                'web': '🌐'
-            };
-            const badges = Array.from(metadata.platforms).map(p => 
-                platformIcons[p] || '🔗'
-            ).join(' ');
-            finalMsg += `${badges} **Multi-Platform Analysis**\n\n`;
-        }
-        
-        // Main answer
-        finalMsg += answer || response.text;
-        
-        // Add sources section
-        finalMsg += '\n\n━━━━━━━━━━━━━━━━━━━━━━\n';
-        finalMsg += `📚 **Sumber (${contents.length}):**\n`;
-        
-        contents.forEach((c, i) => {
-            const icon = c.type === 'twitter' ? '🐦' : 
-                         c.type === 'tiktok' ? '🎵' :
-                         c.type === 'instagram' ? '📸' :
-                         c.type === 'youtube' ? '🎬' : '🔗';
-            finalMsg += `${i + 1}. ${icon} [${c.title.slice(0, 60)}](${c.url})\n`;
-        });
-        
-        // Add failed URLs if any
-        if (failedUrls.length > 0) {
-            finalMsg += `\n⚠️ **${failedUrls.length} URL gagal:**\n`;
-            failedUrls.forEach(f => {
-                finalMsg += `• ${new URL(f.url).hostname} - ${f.error}\n`;
-            });
-        }
-        
-        // Add reasoning as spoiler (optional)
-        if (thinking && thinking.length > 50) {
-            const thinkingPreview = thinking.slice(0, 1500);
-            finalMsg += `\n||💭 **Reasoning Process:**\n${thinkingPreview}${thinking.length > 1500 ? '...' : ''}||`;
-        }
-        
-        // Add metadata footer
-        const processingTime = ((Date.now() - startTime) / 1000).toFixed(1);
-        finalMsg += `\n\n-# ${response.model} • ${response.latency}ms AI • ${processingTime}s total • ${contents.length}/${urls.length} sources 🔗`;
-        
-        // Send response (split if needed)
-        const parts = splitMessage(finalMsg, 1900);
-        await statusMsg.edit(parts[0]);
-        
-        for (let i = 1; i < parts.length; i++) {
-            await msg.channel.send(parts[i]);
-        }
-        
-        console.log(`✅ URL Analysis completed in ${processingTime}s`);
-        
-    } catch (error) {
-        console.error('❌ URL Analysis fatal error:', error);
-        await statusMsg.edit(`❌ **Terjadi error saat analisis:**\n\`\`\`\n${error.message}\n\`\`\`\n\nCoba lagi atau hubungi admin jika masalah berlanjut.`);
-    }
-}
-
-async function handleSearchCommand(msg, query) {
-    if (!query) {
-        return msg.reply(`🔍 **Cara menggunakan .search:**
-
-\`.search <query>\`
-
-**Contoh:**
-• \`.search berita teknologi hari ini\`
-• \`.search harga bitcoin terkini\`
-• \`.search siapa presiden Indonesia 2026\`
-• \`.search cuaca Jakarta hari ini\`
-
-Bot akan mencari di internet dan memberikan jawaban lengkap.`);
-    }
-    
-    const statusMsg = await msg.reply('🔍 Mencari...');
-    
-    try {
-        // Perform search
-        const searchResults = await performSearch(query);
-        
-        if (!searchResults) {
-            return statusMsg.edit('❌ Search tidak tersedia. Pastikan SERPER_API_KEY atau TAVILY_API_KEY sudah diset.');
-        }
-        
-        if (!searchResults.urls?.length && !searchResults.facts?.length && !searchResults.answer) {
-            return statusMsg.edit('❌ Tidak ada hasil pencarian untuk query tersebut.');
-        }
-        
-        // Fetch URL contents if available
-        const contents = [];
-        if (searchResults.urls && searchResults.urls.length > 0) {
-            await statusMsg.edit(`📖 Membaca ${searchResults.urls.length} sumber...`);
-            
-            for (const url of searchResults.urls.slice(0, 3)) {
-                try {
-                    const result = await fetchURLClean(url, { maxLength: 4000, timeout: 10000 });
-                    if (result && result.content) {
-                        contents.push({
-                            url,
-                            content: result.content
-                        });
-                    }
-                } catch (e) {
-                    console.error('Search URL fetch failed:', e.message);
-                }
-            }
-        }
-        
-        await statusMsg.edit('💭 Menyusun jawaban...');
-        
-        // Build context
-        let contextPrompt = `Jawab pertanyaan user berdasarkan informasi dari internet.
-
-[CURRENT DATE: ${new Date().toLocaleDateString('id-ID', { dateStyle: 'full', timeZone: 'Asia/Jakarta' })}]
-
-[USER QUESTION]
-${query}
-
-[SEARCH RESULTS]
-`;
-        
-        if (searchResults.answer) {
-            contextPrompt += `\nDirect Answer: ${searchResults.answer}\n`;
-        }
-        
-        if (searchResults.facts && searchResults.facts.length > 0) {
-            contextPrompt += `\nFacts:\n${searchResults.facts.map((f, i) => `${i + 1}. ${f}`).join('\n')}\n`;
-        }
-        
-        if (contents.length > 0) {
-            contextPrompt += `\n[DETAILED SOURCES]\n`;
-            contents.forEach((c, i) => {
-                contextPrompt += `\nSource ${i + 1} (${new URL(c.url).hostname}):\n${c.content.slice(0, 3000)}\n`;
-            });
-        }
-        
-        contextPrompt += `\n[INSTRUCTIONS]
-1. Berikan jawaban yang akurat berdasarkan informasi di atas
-2. Sebutkan jika informasi mungkin sudah tidak update
-3. Gunakan Bahasa Indonesia yang baik
-4. Jangan mengarang informasi yang tidak ada di sumber`;
-        
-        // Call AI
-        const response = await callAI(msg.guild.id, msg.author.id, contextPrompt, false);
-        
-        // Format response
-        let finalMsg = response.text;
-        
-        // Add sources
-        if (searchResults.urls && searchResults.urls.length > 0) {
-            finalMsg += '\n\n📚 **Sumber:**\n';
-            finalMsg += searchResults.urls.slice(0, 3).map(url => {
-                try {
-                    return `• ${new URL(url).hostname}`;
-                } catch {
-                    return `• ${url.slice(0, 50)}`;
-                }
-            }).join('\n');
-        }
-        
-        finalMsg += `\n\n-# ${response.model} • ${response.latency}ms • 🔍 ${searchResults.source}`;
-        
-        const parts = splitMessage(finalMsg);
-        await statusMsg.edit(parts[0]);
-        
-        for (let i = 1; i < parts.length; i++) {
-            await msg.channel.send(parts[i]);
-        }
-        
-    } catch (error) {
-        console.error('Search error:', error);
-        await statusMsg.edit(`❌ Error: ${error.message}`);
-    }
-}
-
-async function handleStatusCommand(msg) {
-    const poolStatus = await manager.getPoolStatus();
-    const settings = getSettings(msg.guild.id);
-    const uptime = Math.floor((Date.now() - startTime) / 1000);
-    
-    const formatUptime = (seconds) => {
-        const d = Math.floor(seconds / 86400);
-        const h = Math.floor((seconds % 86400) / 3600);
-        const m = Math.floor((seconds % 3600) / 60);
-        const s = seconds % 60;
-        
-        const parts = [];
-        if (d > 0) parts.push(`${d}d`);
-        if (h > 0) parts.push(`${h}h`);
-        if (m > 0) parts.push(`${m}m`);
-        if (s > 0 || parts.length === 0) parts.push(`${s}s`);
-        return parts.join(' ');
-    };
-    
-    const embed = new EmbedBuilder()
-        .setColor(0x5865F2)
-        .setTitle('📊 Aria AI Bot Status')
-        .setDescription(`v3.0.0 Complete Edition`)
-        .addFields(
-            { 
-                name: '⏱️ Uptime', 
-                value: formatUptime(uptime), 
-                inline: true 
-            },
-            { 
-                name: '🌐 Servers', 
-                value: `${client.guilds.cache.size}`, 
-                inline: true 
-            },
-            { 
-                name: '💬 Conversations', 
-                value: `${conversations.size}`, 
-                inline: true 
-            },
-            {
-                name: '🎯 Current Settings',
-                value: `AI: ${AI_PROVIDERS[settings.aiProvider]?.name || settings.aiProvider}\nModel: ${settings.aiModel}\nSearch: ${settings.searchEnabled ? '✅' : '❌'}\nGrounding: ${settings.geminiGrounding ? '✅' : '❌'}`,
-                inline: false
-            },
-            {
-                name: '✨ Features',
-                value: [
-                    `• AI Chat: ✅`,
-                    `• Voice AI: ${isVoiceAIEnabled(msg.guild.id) ? '🟢 ON' : '⚪ OFF'}`,
-                    `• TTS Public: Edge-TTS ✅`,
-                    `• TTS Admin: ${CONFIG.puterTTS?.enabled ? 'Puter.js (ElevenLabs) 🟢' : 'Edge-TTS ⚪'}`,
-                    `• Web Search: ${CONFIG.serperApiKey || CONFIG.tavilyApiKey ? '✅' : '❌'}`,
-                    `• Image Analysis: ${CONFIG.geminiApiKey ? '✅' : '❌'}`
-                ].join('\n'),
-                inline: true
-            },
-            {
-                name: '🔗 Connections',
-                value: [
-                    `• Redis: ${manager.connected ? '🟢' : '🔴'}`,
-                    `• Voice: ${voiceConnections.size} active`,
-                    `• WebSocket: ${client.ws.ping}ms`
-                ].join('\n'),
-                inline: true
-            }
-        )
-        .setTimestamp();
-    
-    // Add API pool info
-    const poolInfo = Object.entries(poolStatus)
-        .filter(([_, s]) => s.keys > 0)
-        .map(([p, s]) => `${p}: ${s.keys} keys`)
-        .join(' | ');
-    
-    if (poolInfo) {
-        embed.addFields({ name: '🔑 API Pool', value: poolInfo, inline: false });
-    }
-    
-    await msg.reply({ embeds: [embed] });
-}
-
-async function handleHelpCommand(msg) {
-    const embed = new EmbedBuilder()
-        .setColor(0x5865F2)
-        .setTitle('🤖 Aria AI Bot')
-        .setDescription('Asisten AI canggih dengan berbagai kemampuan')
-        .addFields(
-            {
-                name: '💬 Chat AI',
-                value: [
-                    '`.ai <pertanyaan>` - Tanya AI',
-                    '`@Aria <pertanyaan>` - Mention bot',
-                    '`.clear` - Hapus memory percakapan'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '🔍 Search',
-                value: [
-                    '`.search <query>` - Cari di internet',
-                    'Auto search untuk pertanyaan real-time'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '📄 File & Dokumen',
-                value: [
-                    '`.read` + upload file',
-                    '`.read <url>` - Baca dari URL',
-                    '`.analyze` + upload - Analisis mendalam',
-                    '',
-                    '*Didukung: PDF, Word, Excel, PowerPoint, Code (JS/Python/dll), JSON, YAML, CSV, TXT, MD*'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '🖼️ Gambar',
-                value: [
-                    '`@Aria` + upload gambar',
-                    '`.analyze` + upload gambar',
-                    'Bisa identifikasi objek, baca teks, dll'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '🔗 URL & Web',
-                value: [
-                    '`.url <link>` - Baca halaman web',
-                    '`@Aria <url>` - Auto analisis URL',
-                    'Support: GitHub, StackOverflow, artikel, dokumentasi'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '🎙️ Podcast Mode',
-                value: [
-                    '`.on` - Mulai podcast (Bot mendengar & menjawab)',
-                    '`.off` - Selesai podcast',
-                    '`.voiceai status` - Cek status',
-                    '',
-                    '**🔊 Voice Commands:**',
-                    '`.speak <text>` - Bot bicara (TTS)',
-                    '`.join` / `.leave` - Kontrol voice channel',
-                    '`.stop` - Stop audio yang sedang main'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '🚀 Render (DevOps)',
-                value: [
-                    '`.render list` - List services',
-                    '`.render status <id>` - Service detail',
-                    '`.render deploy <id>` - Deploy service',
-                    '`.render logs <id>` - View logs',
-                    '`.render suspend/resume <id>` - Control service',
-                    '`.render env <id> list/set/delete`'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '🐙 GitHub (DevOps)',
-                value: [
-                    '`.github repos` - List repositories',
-                    '`.github fork <url>` - Fork repository',
-                    '`.github browse <repo>` - Browse files',
-                    '`.github commits <repo>` - View commits',
-                    '`.github create/delete <name>`'
-                ].join('\n'),
-                inline: false
-            },            
-            {
-                name: '⚙️ Admin Commands',
-                value: [
-                    '`.settings` - Panel pengaturan',
-                    '`.manage` - API Manager',
-                    '`.status` - Status bot'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: 'ℹ️ Info',
-                value: [
-                    '`.ping` - Cek latency',
-                    '`.model` - Info AI models',
-                    '`.help` - Bantuan ini'
-                ].join('\n'),
-                inline: false
-            }
-        )
-        .setFooter({ text: 'Aria AI Bot v3.0.0 • Made with ❤️' })
-        .setTimestamp();
-    
-    await msg.reply({ embeds: [embed] });
-}
-
-async function handleModelInfoCommand(msg) {
-    const settings = getSettings(msg.guild.id);
-    const currentProvider = AI_PROVIDERS[settings.aiProvider];
-    
-    let description = `**Current:** ${currentProvider?.name || settings.aiProvider} - ${settings.aiModel}\n\n`;
-    
-    description += '**Available Providers:**\n';
-    
-    for (const [key, provider] of Object.entries(AI_PROVIDERS)) {
-        const modelCount = provider.models?.length || 0;
-        const isActive = key === settings.aiProvider ? ' ✅' : '';
-        description += `• **${provider.name}**${isActive} (${modelCount} models)\n`;
-    }
-    
-    description += '\n*Gunakan `.settings` untuk mengubah provider/model*';
-    
-    const embed = new EmbedBuilder()
-        .setColor(0x5865F2)
-        .setTitle('🤖 AI Models')
-        .setDescription(description)
-        .setTimestamp();
-    
-    await msg.reply({ embeds: [embed] });
-}
-
-// ==================== BOT EVENTS & LOGIN ====================
 // ============================================================
-//         BOT READY EVENT (UPGRADED)
+//         BOT READY EVENT
 // ============================================================
 
 client.once(Events.ClientReady, () => {
     console.log('='.repeat(50));
-    console.log(`✅ ${client.user.tag} is ONLINE!`);
-    console.log(`📡 Serving ${client.guilds.cache.size} servers`);
-    console.log(`📦 v3.0.0 Complete Edition + DevOps`);
+    console.log(`${client.user.tag} is ONLINE!`);
+    console.log(`Serving ${client.guilds.cache.size} servers`);
+    console.log('v3.0.0 Complete Edition');
     console.log('='.repeat(50));
     
-    // Log active features
-    console.log('🔧 Active Features:');
-    console.log(`   • AI Chat: ✅`);
-    console.log(`   • Voice AI: ✅`);
-    console.log(`   • Render API: ${renderAPI ? '✅' : '❌'}`);
-    console.log(`   • GitHub API: ${githubAPI ? '✅' : '❌'}`);
-    console.log(`   • Webhooks: ${CONFIG.webhookSecret ? '✅' : '❌'}`);
+    console.log('Active Features:');
+    console.log(`   AI Chat: ON`);
+    console.log(`   Voice AI: ON`);
+    console.log(`   Render API: ${renderAPI ? 'ON' : 'OFF'}`);
+    console.log(`   GitHub API: ${githubAPI ? 'ON' : 'OFF'}`);
+    console.log(`   Webhooks: ${BOT_CONFIG.webhookSecret ? 'ON' : 'OFF'}`);
     console.log('='.repeat(50));
     
-    // Initialize Webhook Handler
-    if (CONFIG.webhookSecret || CONFIG.notificationChannelId) {
+    if (BOT_CONFIG.webhookSecret || BOT_CONFIG.notificationChannelId) {
         webhookHandler = new WebhookServer(client, {
-            webhookSecret: CONFIG.webhookSecret,
-            notificationChannelId: CONFIG.notificationChannelId,
-            adminIds: CONFIG.adminIds
+            webhookSecret: BOT_CONFIG.webhookSecret,
+            notificationChannelId: BOT_CONFIG.notificationChannelId,
+            adminIds: BOT_CONFIG.adminIds
         });
-        console.log('🔔 Webhook handler initialized');
-        console.log(`   • Render: POST /webhook/render`);
-        console.log(`   • GitHub: POST /webhook/github`);
+        console.log('Webhook handler initialized');
     }
     
     client.user.setPresence({
@@ -4527,22 +597,49 @@ client.once(Events.ClientReady, () => {
     ensureTempDir();
 });
 
+// ============================================================
+//         ERROR HANDLERS
+// ============================================================
+
 client.on(Events.Error, e => console.error('Client Error:', e.message));
 client.on(Events.Warn, w => console.warn('Warning:', w));
+
 process.on('unhandledRejection', e => console.error('Unhandled:', e));
 process.on('uncaughtException', e => console.error('Uncaught:', e));
-process.on('SIGTERM', () => { voiceConnections.forEach(c => c.destroy()); client.destroy(); process.exit(0); });
-process.on('SIGINT', () => { voiceConnections.forEach(c => c.destroy()); client.destroy(); process.exit(0); });
 
-if (!CONFIG.token) { console.error('❌ DISCORD_TOKEN not set!'); process.exit(1); }
-console.log('🔑 Token:', CONFIG.token.slice(0,10) + '***');
-console.log('🔄 Connecting...');
+process.on('SIGTERM', () => { 
+    voiceConnections.forEach(c => c.destroy()); 
+    client.destroy(); 
+    process.exit(0); 
+});
 
-client.login(CONFIG.token).then(() => {
-    console.log('✅ Login successful!');
+process.on('SIGINT', () => { 
+    voiceConnections.forEach(c => c.destroy()); 
+    client.destroy(); 
+    process.exit(0); 
+});
+
+// ============================================================
+//         LOGIN
+// ============================================================
+
+if (!BOT_CONFIG.token) { 
+    console.error('DISCORD_TOKEN not set!'); 
+    process.exit(1); 
+}
+
+console.log('Token:', BOT_CONFIG.token.slice(0,10) + '***');
+console.log('Connecting...');
+
+client.login(BOT_CONFIG.token).then(() => {
+    console.log('Login successful!');
 }).catch(err => {
-    console.error('❌ LOGIN FAILED:', err.message);
-    if (err.message.includes('TOKEN_INVALID')) console.error('Token invalid! Reset di Developer Portal');
-    if (err.message.includes('DISALLOWED_INTENTS')) console.error('Enable MESSAGE CONTENT INTENT di Developer Portal!');
+    console.error('LOGIN FAILED:', err.message);
+    if (err.message.includes('TOKEN_INVALID')) {
+        console.error('Token invalid! Reset di Developer Portal');
+    }
+    if (err.message.includes('DISALLOWED_INTENTS')) {
+        console.error('Enable MESSAGE CONTENT INTENT di Developer Portal!');
+    }
     process.exit(1);
 });
