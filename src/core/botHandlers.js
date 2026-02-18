@@ -1,8 +1,4 @@
-// src/core/botHandlers.js
-
-// ============================================================
-//         BOT HANDLERS & COMMAND LOGIC
-// ============================================================
+// src/core/botHandlers.js - COMPLETE FIXED VERSION
 
 const path = require('path');
 const fs = require('fs');
@@ -34,7 +30,6 @@ const {
 const { BOT_CONFIG, AI_PROVIDERS, EDGE_TTS_VOICES, ELEVENLABS_VOICES, SYSTEM_PROMPT } = require('./botConfig');
 
 const {
-    // Storage Maps
     guildSettings,
     voiceConnections,
     audioPlayers,
@@ -43,53 +38,25 @@ const {
     voiceRecordings,
     voiceAISessions,
     processingUsers,
-    
-    // Constants
-    DEFAULT_SETTINGS,
-    SUPPORTED_FILE_EXTENSIONS,
-    
-    // Basic Utilities
     ensureTempDir,
     cleanupFile,
     splitMessage,
     isAdmin,
     checkRateLimit,
     httpRequest,
-    
-    // Settings Management
     getSettings,
     updateSettings,
-    
-    // Conversation Memory
     getConversation,
     addToConversation,
     clearConversation,
-    
-    // URL & File Detection
-    detectURLs,
-    shouldAutoFetch,
-    isMediaFile,
-    isShortener,
     shouldSearch,
-    
-    // TTS
     generateTTS,
-    
-    // File Reading
     readFile,
-    
-    // Web Scraping
     fetchURLClean,
     readGitHubFile,
-    
-    // Search
     performSearch,
-    
-    // Reasoning
     parseThinkingResponse,
     buildContextPrompt,
-    
-    // Audio
     createWavHeader
 } = require('./botUtils');
 
@@ -495,7 +462,7 @@ async function analyzeImage(imageUrl, prompt = '') {
 }
 
 // ============================================================
-//         VOICE FUNCTIONS
+//         VOICE FUNCTIONS (Simplified - no Voice AI for now)
 // ============================================================
 
 async function joinUserVoiceChannel(member, guild) {
@@ -536,11 +503,6 @@ async function joinUserVoiceChannel(member, guild) {
             processNextInQueue(guild.id);
         });
 
-        const session = voiceAISessions.get(guild.id);
-        if (session?.enabled) {
-            setupVoiceReceiver(conn, guild.id, session.textChannel);
-        }
-
         return { success: true, channel: vc };
 
     } catch (e) {
@@ -551,8 +513,6 @@ async function joinUserVoiceChannel(member, guild) {
 
 async function leaveVoiceChannel(guild) {
     const guildId = guild.id || guild;
-    
-    disableVoiceAI(guildId);
     
     const conn = voiceConnections.get(guildId) || getVoiceConnection(guildId);
 
@@ -615,287 +575,17 @@ async function playTTSInVoice(guildId, filePath) {
     return true;
 }
 
-// ============================================================
-//         VOICE AI FUNCTIONS
-// ============================================================
-
-async function transcribeWithGroq(audioFilePath) {
-    const apiKey = BOT_CONFIG.groqApiKey;
-    if (!apiKey) throw new Error('No Groq API key for transcription');
-    
-    if (!fs.existsSync(audioFilePath)) {
-        throw new Error('Audio file not found');
-    }
-    
-    const fileSize = fs.statSync(audioFilePath).size;
-    console.log(`Sending to Whisper: ${audioFilePath} (${fileSize} bytes)`);
-    
-    if (fileSize < 1000) {
-        throw new Error('Audio file too small');
-    }
-    
-    const formData = new FormData();
-    formData.append('file', fs.createReadStream(audioFilePath));
-    formData.append('model', BOT_CONFIG.voiceAI.whisperModel);
-    formData.append('response_format', 'verbose_json');
-    
-    const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${apiKey}`
-        },
-        body: formData
-    });
-    
-    if (!response.ok) {
-        const error = await response.text();
-        console.error('Whisper error:', error);
-        throw new Error(`Whisper API error: ${response.status}`);
-    }
-    
-    const result = await response.json();
-    console.log(`Whisper result:`, JSON.stringify(result).slice(0, 200));
-    
-    return result.text || '';
-}
-
-function setupVoiceReceiver(connection, guildId, textChannel) {
-    const receiver = connection.receiver;
-    
-    receiver.speaking.on('start', (userId) => {
-        const session = voiceAISessions.get(guildId);
-        if (!session?.enabled) return;
-        if (processingUsers.has(userId)) return;
-        
-        startRecording(connection, userId, guildId, textChannel);
-    });
-}
-
-function startRecording(connection, userId, guildId, textChannel) {
-    if (voiceRecordings.has(userId)) return;
-    
-    const session = voiceAISessions.get(guildId);
-    if (session?.isSpeaking) return;
-    
-    const receiver = connection.receiver;
-    
-    const opusStream = receiver.subscribe(userId, {
-        end: {
-            behavior: EndBehaviorType.AfterSilence,
-            duration: 2000
-        }
-    });
-    
-    const opusDecoder = new prism.opus.Decoder({
-        frameSize: 960,
-        channels: 2,
-        rate: 48000
-    });
-    
-    const chunks = [];
-    const startTime = Date.now();
-    
-    const recordingData = {
-        chunks,
-        startTime,
-        stream: opusStream,
-        decoder: opusDecoder,
-        timeout: null
-    };
-    
-    voiceRecordings.set(userId, recordingData);
-    
-    console.log(`Started recording user ${userId}`);
-    
-    const handleError = (err, source) => {
-        if (err.message === 'stream.push() after EOF') return;
-        if (err.message.includes('compressed data')) return;
-        console.error(`${source} error user ${userId}:`, err.message);
-        cleanupRecording(userId);
-    };
-
-    opusStream.on('error', (err) => handleError(err, 'Audio stream'));
-    opusDecoder.on('error', (err) => handleError(err, 'Opus decoder'));
-    
-    opusStream.pipe(opusDecoder);
-    
-    opusDecoder.on('data', (chunk) => {
-        if (Date.now() - startTime < BOT_CONFIG.voiceAI.maxRecordingDuration) {
-            chunks.push(chunk);
-        }
-    });
-    
-    opusDecoder.on('end', async () => {
-        cleanupRecording(userId);
-        
-        const duration = Date.now() - startTime;
-        if (duration < BOT_CONFIG.voiceAI.minAudioLength || chunks.length === 0) {
-            return;
-        }
-        
-        const pcmBuffer = Buffer.concat(chunks);
-        await processVoiceInput(userId, guildId, pcmBuffer, textChannel);
-    });
-    
-    recordingData.timeout = setTimeout(() => {
-        if (voiceRecordings.has(userId)) {
-            console.log(`Recording timeout user ${userId}`);
-            cleanupRecording(userId);
-        }
-    }, BOT_CONFIG.voiceAI.maxRecordingDuration + 1000);
-}
-
-function cleanupRecording(userId) {
-    const recording = voiceRecordings.get(userId);
-    if (!recording) return;
-    
-    if (recording.timeout) clearTimeout(recording.timeout);
-    
-    try { recording.stream.destroy(); } catch {}
-    try { recording.decoder.destroy(); } catch {}
-    
-    voiceRecordings.delete(userId);
-}
-
-async function processVoiceInput(userId, guildId, audioBuffer, textChannel) {
-    if (processingUsers.has(userId)) return;
-    
-    const session = voiceAISessions.get(guildId);
-    if (session?.isSpeaking) return;
-    
-    processingUsers.add(userId);
-    
-    const tempFile = path.join(BOT_CONFIG.tempPath, `voice_${userId}_${Date.now()}.ogg`);
-    
-    try {
-        await convertOpusToOgg(audioBuffer, tempFile);
-        
-        const fileStats = fs.statSync(tempFile);
-        if (fileStats.size < 1000) return;
-        
-        const transcription = await transcribeWithGroq(tempFile);
-        
-        if (!transcription || transcription.trim().length < 3) return;
-        
-        console.log(`[${userId}]: "${transcription}"`);
-        
-        const text = transcription.toLowerCase().trim();
-        
-        const skipPhrases = [
-            'hmm', 'uhh', 'ehh', 'ahh', 'umm',
-            'hm', 'uh', 'eh', 'ah', 'um',
-            'terima kasih', 'thank you', 'thanks',
-            'oke', 'okay', 'ok',
-            'yes', 'no', 'ya', 'tidak'
-        ];
-        
-        if (skipPhrases.includes(text) || text.length < 5) {
-            console.log(`Skipped filler: "${text}"`);
-            return;
-        }
-        
-        if (textChannel) {
-            textChannel.send(`Voice: ${transcription}`).catch(() => {});
-        }
-        
-        if (session) {
-            session.isSpeaking = true;
-            session.speakingStartedAt = Date.now();
-        }
-        
-        console.log(`Processing: "${transcription}"`);
-        const response = await callAI(guildId, userId, transcription, true);
-        console.log(`AI responded (${response.latency}ms)`);
-        
-        if (textChannel) {
-            const info = `${response.model} - ${response.latency}ms`;
-            textChannel.send(`${response.text}\n\n-# ${info}`).catch(() => {});
-        }
-        
-        const s = getSettings(guildId);
-        const voice = isAdmin(userId) ? (s.ttsVoiceElevenlabs || s.ttsVoice) : s.ttsVoice;
-        const ttsFile = await generateTTS(response.text, voice, userId);
-        await playTTSInVoice(guildId, ttsFile);
-        
-        console.log(`Voice response complete!`);
-        
-        setTimeout(() => {
-            const session = voiceAISessions.get(guildId);
-            if (session) {
-                session.isSpeaking = false;
-                console.log(`Ready to listen again`);
-            }
-        }, 3000);
-        
-    } catch (error) {
-        console.error('Voice error:', error.message);
-    } finally {
-        cleanupFile(tempFile);
-        processingUsers.delete(userId);
-    }
-}
-
-async function convertOpusToOgg(opusBuffer, outputPath) {
-    return new Promise((resolve, reject) => {
-        try {
-            console.log(`Raw audio size: ${opusBuffer.length} bytes`);
-            
-            const tempPcm = outputPath.replace('.ogg', '.pcm');
-            fs.writeFileSync(tempPcm, opusBuffer);
-            
-            const ffmpegCmd = `ffmpeg -y -f s16le -ar 48000 -ac 2 -i "${tempPcm}" -ar 16000 -ac 1 -f wav "${outputPath}" 2>/dev/null`;
-            
-            exec(ffmpegCmd, { timeout: 15000 }, (error) => {
-                cleanupFile(tempPcm);
-                
-                if (error || !fs.existsSync(outputPath) || fs.statSync(outputPath).size < 1000) {
-                    console.log('FFmpeg failed, creating WAV manually');
-                    
-                    const wavHeader = createWavHeader(opusBuffer.length, 48000, 2, 16);
-                    const wavFile = Buffer.concat([wavHeader, opusBuffer]);
-                    fs.writeFileSync(outputPath, wavFile);
-                }
-                
-                const finalSize = fs.existsSync(outputPath) ? fs.statSync(outputPath).size : 0;
-                console.log(`Audio converted: ${finalSize} bytes`);
-                
-                resolve(outputPath);
-            });
-            
-        } catch (err) {
-            console.error('Conversion error:', err.message);
-            fs.writeFileSync(outputPath, opusBuffer);
-            resolve(outputPath);
-        }
-    });
-}
-
-function enableVoiceAI(guildId, textChannel = null) {
-    voiceAISessions.set(guildId, {
-        enabled: true,
-        textChannel: textChannel,
-        startedAt: Date.now(),
-        isSpeaking: false
-    });
-    
-    const conn = voiceConnections.get(guildId);
-    if (conn) {
-        setupVoiceReceiver(conn, guildId, textChannel);
-    }
+// Voice AI functions (disabled for now)
+function enableVoiceAI(guildId, textChannel) {
+    console.log('Voice AI not implemented yet');
 }
 
 function disableVoiceAI(guildId) {
-    voiceAISessions.delete(guildId);
-    
-    for (const [userId, recording] of voiceRecordings) {
-        if (recording.stream) recording.stream.destroy();
-        if (recording.timeout) clearTimeout(recording.timeout);
-    }
-    voiceRecordings.clear();
+    console.log('Voice AI not implemented yet');
 }
 
 function isVoiceAIEnabled(guildId) {
-    return voiceAISessions.get(guildId)?.enabled || false;
+    return false;
 }
 
 // ============================================================
@@ -908,17 +598,15 @@ function createSettingsEmbed(guildId) {
     const model = ai?.models.find(m => m.id === s.aiModel) || { name: s.aiModel };
     
     const edgeVoice = EDGE_TTS_VOICES.find(v => v.id === s.ttsVoice);
-    const elevenVoice = ELEVENLABS_VOICES.find(v => v.id === s.ttsVoiceElevenlabs) || { name: 'MiniMax Clone' };
 
     return new EmbedBuilder()
         .setColor(0x5865F2)
         .setTitle('Toing Settings')
         .addFields(
             { name: 'AI Provider', value: `${ai?.name || s.aiProvider}\n${model.name}`, inline: true },
-            { name: 'TTS (Public)', value: edgeVoice?.name || s.ttsVoice, inline: true },
-            { name: 'TTS (Admin)', value: elevenVoice?.name || 'Default', inline: true },
+            { name: 'TTS Voice', value: edgeVoice?.name || s.ttsVoice, inline: true }
         )
-        .setFooter({ text: 'v3.0.0' })
+        .setFooter({ text: 'v3.5.0' })
         .setTimestamp();
 }
 
@@ -968,30 +656,13 @@ function createVoiceMenu(guildId) {
     return new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
             .setCustomId('sel_voice')
-            .setPlaceholder('Voice (Public - Edge-TTS)')
+            .setPlaceholder('Voice')
             .addOptions(opts)
     );
 }
 
 function createElevenlabsVoiceMenu(guildId) {
-    const s = getSettings(guildId);
-    const voices = ELEVENLABS_VOICES;
-    
-    if (!voices || voices.length === 0) return null;
-    
-    const opts = voices.slice(0, 25).map(v => ({
-        label: v.name.slice(0, 25), 
-        value: v.id,
-        description: v.lang === 'id' ? 'Indonesia' : 'English',
-        default: v.id === (s.ttsVoiceElevenlabs || 'gmnazjXOFoOcWA59sd5m')
-    }));
-    
-    return new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-            .setCustomId('sel_voice_elevenlabs')
-            .setPlaceholder('Pilih Suara (Admin Only)')
-            .addOptions(opts)
-    );
+    return null; // Disabled for now
 }
 
 function createModeButtons(guildId) {
@@ -1042,10 +713,7 @@ async function handleAI(msg, query) {
         if (inVoice) {
             try {
                 const s = getSettings(msg.guild.id);
-                const voice = isAdmin(msg.author.id) 
-                    ? (s.ttsVoiceElevenlabs || 'gmnazjXOFoOcWA59sd5m') 
-                    : (s.ttsVoice || 'id-ID-GadisNeural');
-                
+                const voice = s.ttsVoice || 'id-ID-GadisNeural';
                 const ttsFile = await generateTTS(response.text, voice, msg.author.id);
                 
                 if (ttsFile) {
@@ -1072,7 +740,7 @@ async function handleSpeak(msg, text) {
 
     try {
         const s = getSettings(msg.guild.id);
-        const voice = isAdmin(msg.author.id) ? (s.ttsVoiceElevenlabs || s.ttsVoice) : s.ttsVoice;
+        const voice = s.ttsVoice || 'id-ID-GadisNeural';
         const ttsFile = await generateTTS(text, voice, msg.author.id);
         if (ttsFile) {
             await playTTSInVoice(msg.guild.id, ttsFile);
@@ -1103,38 +771,14 @@ async function handleFileReadWithQuery(msg, attachment, query = '') {
         
         const ext = path.extname(attachment.name || '').toLowerCase();
         const isCode = ['.js', '.ts', '.py', '.java', '.c', '.cpp', '.go', '.rs', '.rb', '.php'].includes(ext);
-        const isData = ['.json', '.yaml', '.yml', '.xml', '.csv'].includes(ext);
-        const isDoc = ['.pdf', '.docx', '.doc', '.txt', '.md'].includes(ext);
         
-        let analysisPrompt = '';
-        
-        if (query) {
-            analysisPrompt = `Based on file "${attachment.name}", answer:\n\n[USER REQUEST]\n${query}\n\n`;
-        } else if (isCode) {
-            analysisPrompt = `Analyze code in "${attachment.name}":\n1. Main function\n2. Patterns used\n3. Improvements\n\n`;
-        } else if (isData) {
-            analysisPrompt = `Analyze data in "${attachment.name}":\n1. Structure\n2. Key info\n3. Summary\n\n`;
-        } else if (isDoc) {
-            analysisPrompt = `Analyze document "${attachment.name}":\n1. Summary\n2. Key points\n3. Conclusions\n\n`;
-        } else {
-            analysisPrompt = `Analyze file "${attachment.name}":\n\n`;
-        }
-        
-        const maxContent = 50000;
-        analysisPrompt += `[FILE CONTENT]\n${content.slice(0, maxContent)}`;
-
-        if (content.length > maxContent) {
-            analysisPrompt += `\n\n[Note: File truncated, total ${content.length} chars]`;
-        }
+        let analysisPrompt = query || (isCode ? 'Analyze this code' : 'Summarize this file');
+        analysisPrompt += `\n\nFile: ${attachment.name}\n\n${content.slice(0, 50000)}`;
         
         const response = await callAI(msg.guild.id, msg.author.id, analysisPrompt, false);
         
         let finalMsg = `${attachment.name}\n\n${response.text}`;
         finalMsg += `\n\n-# ${response.model} - ${response.latency}ms`;
-        
-        if (content.length > 1000000) {
-            finalMsg += ` - File truncated`;
-        }
         
         const parts = splitMessage(finalMsg);
         await statusMsg.edit(parts[0]);
@@ -1158,7 +802,6 @@ async function handleImageAnalysisWithQuery(msg, image, query = '') {
     
     try {
         const prompt = query || 'Jelaskan gambar ini secara detail dalam Bahasa Indonesia.';
-        
         const analysis = await analyzeImage(image.url, prompt);
         
         let finalMsg = `Image Analysis\n\n${analysis}`;
@@ -1179,13 +822,9 @@ async function handleImageAnalysisWithQuery(msg, image, query = '') {
 
 async function handleURLAnalysis(msg, urls, query = '') {
     const statusMsg = await msg.reply(`Analyzing ${urls.length} URL(s)...`);
-    const startTime = Date.now();
     
     try {
         const contents = [];
-        const failedUrls = [];
-        
-        await statusMsg.edit(`[1/3] Fetching content from ${urls.length} sources...`);
         
         for (const url of urls.slice(0, 3)) {
             try {
@@ -1204,78 +843,34 @@ async function handleURLAnalysis(msg, urls, query = '') {
                     contents.push({
                         url,
                         hostname,
-                        type: result.type || 'webpage',
-                        title: result.title || hostname,
                         content: result.content
                     });
                 }
             } catch (e) {
                 console.error(`Failed to fetch ${url}:`, e.message);
-                failedUrls.push({ url, error: e.message });
             }
         }
         
         if (contents.length === 0) {
-            let errorMsg = 'Failed to read all URLs\n\n';
-            if (failedUrls.length > 0) {
-                errorMsg += 'Errors:\n';
-                failedUrls.forEach(f => {
-                    errorMsg += `- ${new URL(f.url).hostname}: ${f.error}\n`;
-                });
-            }
-            return statusMsg.edit(errorMsg);
+            return statusMsg.edit('Failed to read URLs');
         }
         
-        await statusMsg.edit(`[2/3] Analyzing ${contents.length} sources with AI...`);
+        let analysisPrompt = query || 'Analisis konten dari URL ini';
+        analysisPrompt += '\n\nSources:\n';
         
-        const timestamp = new Date().toLocaleDateString('id-ID', { 
-            dateStyle: 'full', 
-            timeZone: 'Asia/Jakarta' 
-        });
-        
-        let analysisPrompt = `[CURRENT DATE: ${timestamp}]\n\n`;
-        
-        if (query) {
-            analysisPrompt += `[USER REQUEST]\n"${query}"\n\n`;
-        } else {
-            analysisPrompt += `[TASK]\nAnalyze all sources comprehensively.\n\n`;
-        }
-        
-        analysisPrompt += `[SOURCES - ${contents.length} items]\n\n`;
-        
-        contents.forEach((content, index) => {
-            const preview = content.content.slice(0, 6000);
-            analysisPrompt += `SOURCE #${index + 1}: ${content.title}\n`;
-            analysisPrompt += `URL: ${content.url}\n`;
-            analysisPrompt += `Platform: ${content.type}\n\n`;
-            analysisPrompt += `[CONTENT]\n${preview}\n`;
-            analysisPrompt += `${content.content.length > 6000 ? '...(truncated)' : ''}\n\n`;
+        contents.forEach((c, i) => {
+            analysisPrompt += `\nSource ${i + 1} (${c.hostname}):\n${c.content.slice(0, 6000)}\n`;
         });
         
         const response = await callAI(msg.guild.id, msg.author.id, analysisPrompt, false);
         
-        await statusMsg.edit(`[3/3] Formatting results...`);
-        
-        const { thinking, answer } = parseThinkingResponse(response.text);
-        
-        let finalMsg = answer || response.text;
-        
-        finalMsg += '\n\n---\n';
-        finalMsg += `Sources (${contents.length}):\n`;
-        
+        let finalMsg = response.text;
+        finalMsg += '\n\nSources:\n';
         contents.forEach((c, i) => {
-            finalMsg += `${i + 1}. ${c.title.slice(0, 60)} (${c.url})\n`;
+            finalMsg += `${i + 1}. ${c.hostname}\n`;
         });
         
-        if (failedUrls.length > 0) {
-            finalMsg += `\n${failedUrls.length} URL(s) failed:\n`;
-            failedUrls.forEach(f => {
-                finalMsg += `- ${new URL(f.url).hostname}: ${f.error}\n`;
-            });
-        }
-        
-        const processingTime = ((Date.now() - startTime) / 1000).toFixed(1);
-        finalMsg += `\n-# ${response.model} - ${response.latency}ms AI - ${processingTime}s total`;
+        finalMsg += `\n-# ${response.model} - ${response.latency}ms`;
         
         const parts = splitMessage(finalMsg, 1900);
         await statusMsg.edit(parts[0]);
@@ -1284,17 +879,15 @@ async function handleURLAnalysis(msg, urls, query = '') {
             await msg.channel.send(parts[i]);
         }
         
-        console.log(`URL Analysis completed in ${processingTime}s`);
-        
     } catch (error) {
         console.error('URL Analysis error:', error);
-        await statusMsg.edit(`Error during analysis:\n${error.message}`);
+        await statusMsg.edit(`Error: ${error.message}`);
     }
 }
 
 async function handleSearchCommand(msg, query) {
     if (!query) {
-        return msg.reply(`Usage: .search <query>\n\nExample:\n- .search berita teknologi hari ini\n- .search harga bitcoin terkini`);
+        return msg.reply('Usage: .search <query>');
     }
     
     const statusMsg = await msg.reply('Searching...');
@@ -1303,17 +896,11 @@ async function handleSearchCommand(msg, query) {
         const searchResults = await performSearch(query);
         
         if (!searchResults) {
-            return statusMsg.edit('Search not available. Set SERPER_API_KEY or TAVILY_API_KEY.');
-        }
-        
-        if (!searchResults.urls?.length && !searchResults.facts?.length && !searchResults.answer) {
-            return statusMsg.edit('No search results found.');
+            return statusMsg.edit('Search not available');
         }
         
         const contents = [];
         if (searchResults.urls && searchResults.urls.length > 0) {
-            await statusMsg.edit(`Reading ${searchResults.urls.length} sources...`);
-            
             for (const url of searchResults.urls.slice(0, 3)) {
                 try {
                     const result = await fetchURLClean(url, { maxLength: 4000, timeout: 10000 });
@@ -1326,30 +913,15 @@ async function handleSearchCommand(msg, query) {
             }
         }
         
-        await statusMsg.edit('Generating answer...');
-        
-        let contextPrompt = `Answer the user's question based on internet search results.
-
-[CURRENT DATE: ${new Date().toLocaleDateString('id-ID', { dateStyle: 'full', timeZone: 'Asia/Jakarta' })}]
-
-[USER QUESTION]
-${query}
-
-[SEARCH RESULTS]
-`;
+        let contextPrompt = `Answer based on search results:\n\n${query}\n\n`;
         
         if (searchResults.answer) {
-            contextPrompt += `\nDirect Answer: ${searchResults.answer}\n`;
-        }
-        
-        if (searchResults.facts && searchResults.facts.length > 0) {
-            contextPrompt += `\nFacts:\n${searchResults.facts.map((f, i) => `${i + 1}. ${f}`).join('\n')}\n`;
+            contextPrompt += `Answer: ${searchResults.answer}\n\n`;
         }
         
         if (contents.length > 0) {
-            contextPrompt += `\n[DETAILED SOURCES]\n`;
             contents.forEach((c, i) => {
-                contextPrompt += `\nSource ${i + 1} (${new URL(c.url).hostname}):\n${c.content.slice(0, 3000)}\n`;
+                contextPrompt += `Source ${i + 1}:\n${c.content.slice(0, 3000)}\n\n`;
             });
         }
         
@@ -1359,16 +931,10 @@ ${query}
         
         if (searchResults.urls && searchResults.urls.length > 0) {
             finalMsg += '\n\nSources:\n';
-            finalMsg += searchResults.urls.slice(0, 3).map(url => {
-                try {
-                    return `- ${new URL(url).hostname}`;
-                } catch {
-                    return `- ${url.slice(0, 50)}`;
-                }
-            }).join('\n');
+            finalMsg += searchResults.urls.slice(0, 3).map(url => `- ${new URL(url).hostname}`).join('\n');
         }
         
-        finalMsg += `\n\n-# ${response.model} - ${response.latency}ms - ${searchResults.source}`;
+        finalMsg += `\n\n-# ${response.model} - ${response.latency}ms`;
         
         const parts = splitMessage(finalMsg);
         await statusMsg.edit(parts[0]);
@@ -1393,69 +959,12 @@ async function handleReadCommand(msg, args) {
         return await handleFileReadWithQuery(msg, attachment, args.join(' '));
     }
     
-    if (msg.reference) {
-        try {
-            const repliedMsg = await msg.channel.messages.fetch(msg.reference.messageId);
-            if (repliedMsg.attachments.size > 0) {
-                const attachment = repliedMsg.attachments.first();
-                return await handleFileReadWithQuery(msg, attachment, args.join(' '));
-            }
-        } catch {
-            // Ignore fetch error
-        }
-    }
-    
-    await msg.reply(`How to use .read:
-
-File Upload:
-.read + upload file
-.read explain this code + upload file
-
-URL:
-.read https://example.com/article
-.read https://github.com/user/repo/blob/main/file.js explain
-
-Reply:
-Reply to message with attachment + type .read
-
-Supported formats:
-- Documents: PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx)
-- Code: JS, Python, Java, C++, Go, Rust, etc
-- Data: JSON, YAML, XML, CSV
-- Text: TXT, MD, LOG, etc`);
+    await msg.reply('Usage: .read <url> OR .read + upload file');
 }
 
 async function handleAnalyzeCommand(msg, args) {
     if (msg.attachments.size === 0) {
-        if (msg.reference) {
-            try {
-                const repliedMsg = await msg.channel.messages.fetch(msg.reference.messageId);
-                if (repliedMsg.attachments.size > 0) {
-                    const attachment = repliedMsg.attachments.first();
-                    const images = [attachment].filter(a => a.contentType?.startsWith('image/'));
-                    if (images.length > 0) {
-                        return await handleImageAnalysisWithQuery(msg, images[0], args.join(' '));
-                    } else {
-                        return await handleFileReadWithQuery(msg, attachment, args.join(' '));
-                    }
-                }
-            } catch {
-                // Ignore
-            }
-        }
-        
-        return msg.reply(`How to use .analyze:
-
-Image:
-.analyze + upload image
-.analyze what is in this image? + upload image
-
-File:
-.analyze + upload file
-.analyze any bugs in this code? + upload file
-
-Reply:
-Reply to message with image/file + type .analyze`);
+        return msg.reply('Usage: .analyze + upload file/image');
     }
     
     const attachment = msg.attachments.first();
@@ -1472,54 +981,14 @@ async function handleStatusCommand(msg, client, startTime, manager) {
     const settings = getSettings(msg.guild.id);
     const uptime = Math.floor((Date.now() - startTime) / 1000);
     
-    const formatUptime = (seconds) => {
-        const d = Math.floor(seconds / 86400);
-        const h = Math.floor((seconds % 86400) / 3600);
-        const m = Math.floor((seconds % 3600) / 60);
-        const s = seconds % 60;
-        
-        const parts = [];
-        if (d > 0) parts.push(`${d}d`);
-        if (h > 0) parts.push(`${h}h`);
-        if (m > 0) parts.push(`${m}m`);
-        if (s > 0 || parts.length === 0) parts.push(`${s}s`);
-        return parts.join(' ');
-    };
-    
     const embed = new EmbedBuilder()
         .setColor(0x5865F2)
         .setTitle('Toing AI Bot Status')
-        .setDescription('v3.0.0')
+        .setDescription('v3.5.0')
         .addFields(
-            { name: 'Uptime', value: formatUptime(uptime), inline: true },
+            { name: 'Uptime', value: `${uptime}s`, inline: true },
             { name: 'Servers', value: `${client.guilds.cache.size}`, inline: true },
-            { name: 'Conversations', value: `${conversations.size}`, inline: true },
-            {
-                name: 'Current Settings',
-                value: `AI: ${AI_PROVIDERS[settings.aiProvider]?.name || settings.aiProvider}\nModel: ${settings.aiModel}\nSearch: ${settings.searchEnabled ? 'ON' : 'OFF'}\nGrounding: ${settings.geminiGrounding ? 'ON' : 'OFF'}`,
-                inline: false
-            },
-            {
-                name: 'Features',
-                value: [
-                    `AI Chat: ON`,
-                    `Voice AI: ${isVoiceAIEnabled(msg.guild.id) ? 'ON' : 'OFF'}`,
-                    `TTS Public: Edge-TTS ON`,
-                    `TTS Admin: ${BOT_CONFIG.puterTTS?.enabled ? 'Puter.js ON' : 'Edge-TTS'}`,
-                    `Web Search: ${BOT_CONFIG.serperApiKey || BOT_CONFIG.tavilyApiKey ? 'ON' : 'OFF'}`,
-                    `Image Analysis: ${BOT_CONFIG.geminiApiKey ? 'ON' : 'OFF'}`
-                ].join('\n'),
-                inline: true
-            },
-            {
-                name: 'Connections',
-                value: [
-                    `Redis: ${manager?.connected ? 'ON' : 'OFF'}`,
-                    `Voice: ${voiceConnections.size} active`,
-                    `WebSocket: ${client.ws.ping}ms`
-                ].join('\n'),
-                inline: true
-            }
+            { name: 'AI Provider', value: settings.aiProvider, inline: true }
         )
         .setTimestamp();
     
@@ -1530,208 +999,40 @@ async function handleHelpCommand(msg) {
     const embed = new EmbedBuilder()
         .setColor(0x5865F2)
         .setTitle('Toing AI Bot')
-        .setDescription('AI Assistant with multiple capabilities')
+        .setDescription('AI Assistant')
         .addFields(
             {
                 name: 'Chat AI',
-                value: [
-                    '.ai <question> - Ask AI',
-                    '@Toing <question> - Mention bot',
-                    '.clear - Clear conversation memory'
-                ].join('\n'),
+                value: '.ai <question> - Ask AI\n@Toing <question> - Mention\n.clear - Clear memory',
                 inline: false
             },
             {
                 name: 'Search',
-                value: [
-                    '.search <query> - Search internet',
-                    'Auto search for real-time questions'
-                ].join('\n'),
+                value: '.search <query> - Search internet',
                 inline: false
             },
             {
-                name: 'File & Documents',
-                value: [
-                    '.read + upload file',
-                    '.read <url> - Read from URL',
-                    '.analyze + upload - Deep analysis',
-                    '',
-                    'Supported: PDF, Word, Excel, PowerPoint, Code, JSON, YAML, CSV, TXT, MD'
-                ].join('\n'),
+                name: 'Files & URLs',
+                value: '.read + upload OR .read <url>\n.analyze + upload',
                 inline: false
             },
             {
-                name: 'Images',
-                value: [
-                    '@Toing + upload image',
-                    '.analyze + upload image',
-                    'Can identify objects, read text, etc'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: 'URL & Web',
-                value: [
-                    '.url <link> - Read webpage',
-                    '@Toing <url> - Auto analyze URL',
-                    'Support: GitHub, StackOverflow, articles, docs'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: 'Podcast Mode',
-                value: [
-                    '.voiceai on - Start podcast (Bot listens & responds)',
-                    '.voiceai off - Stop podcast',
-                    '.voiceai status - Check status',
-                    '',
-                    'Voice Commands:',
-                    '.speak <text> - Bot speaks (TTS)',
-                    '.join / .leave - Control voice channel',
-                    '.stop - Stop audio'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: 'Admin Commands',
-async function handleHelpCommand(msg) {
-    const embed = new EmbedBuilder()
-        .setColor(0x5865F2)
-        .setTitle('🤖 Toing AI Bot - Complete Guide')
-        .setDescription('Asisten AI dengan berbagai kemampuan canggih')
-        .addFields(
-            {
-                name: '💬 Chat AI',
-                value: [
-                    '`.ai <pertanyaan>` - Tanya AI',
-                    '`@Toing <pertanyaan>` - Mention bot',
-                    '`.clear` - Hapus memory'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '🔍 Search & Info',
-                value: [
-                    '`.search <query>` - Cari di internet',
-                    '`.weather <city>` - Cuaca real-time',
-                    '`.forecast <city>` - Prakiraan 5 hari'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '📄 File & URL',
-                value: [
-                    '`.read` + upload file',
-                    '`.read <url>` - Baca website',
-                    '`.analyze` + upload - Analisis detail'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '🎥 YouTube',
-                value: [
-                    '`.youtube <url>` - Analisis video',
-                    'Auto extract transcript',
-                    'Summary + timestamps'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '💻 Code Execution',
-                value: [
-                    '`.run <language>`',
-                    '```python',
-                    'print("Hello")',
-                    '```',
-                    '`.languages` - List bahasa'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '📥 Social Media Downloader',
-                value: [
-                    '`.download <url>` - Download tanpa watermark',
-                    'Support: TikTok, Instagram, Twitter/X, Facebook'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '⏰ Alarm & Reminders',
-                value: [
-                    '`.alarm set "jam 4 pagi" "Sahur!"` - Set alarm',
-                    '`.alarm list` - List alarms',
-                    '`.alarm delete <id>` - Hapus alarm',
-                    'Bot bisa masuk voice untuk bangunin!'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '🎙️ Voice AI (Podcast Mode)',
-                value: [
-                    '`.voiceai on` - Aktivasi mode podcast',
-                    'Bot akan dengar & jawab otomatis',
-                    '`.voiceai off` - Matikan'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '🔊 Voice Commands',
-                value: [
-                    '`.speak <text>` - TTS',
-                    '`.join` / `.leave` - Voice channel',
-                    '`.stop` - Stop audio'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '💾 Database',
-                value: [
-                    '`.remember <key> <value>` - Simpan preferensi',
-                    '`.recall` - Lihat preferensi tersimpan'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: '🚀 DevOps (Admin)',
-                value: [
-                    '`.render list/status/deploy/logs`',
-                    '`.github repos/fork/create`',
-                    '`.settings` - Bot settings',
-                    '`.manage` - API Manager'
-                ].join('\n'),
-                inline: false
-            },
-            {
-                name: 'ℹ️ Info',
-                value: [
-                    '`.ping` - Latency',
-                    '`.status` - Bot status',
-                    '`.model` - AI models',
-                    '`.help` - Bantuan ini'
-                ].join('\n'),
+                name: 'Voice',
+                value: '.join / .leave - Voice channel\n.speak <text> - TTS\n.stop - Stop audio',
                 inline: false
             }
         )
-        .setFooter({ text: 'Toing AI Bot v3.5.0 - Complete Edition + Advanced Skills' })
+        .setFooter({ text: 'Toing v3.5.0' })
         .setTimestamp();
     
     await msg.reply({ embeds: [embed] });
-            }
+}
+
 async function handleModelInfoCommand(msg) {
     const settings = getSettings(msg.guild.id);
     const currentProvider = AI_PROVIDERS[settings.aiProvider];
     
-    let description = `Current: ${currentProvider?.name || settings.aiProvider} - ${settings.aiModel}\n\n`;
-    
-    description += 'Available Providers:\n';
-    
-    for (const [key, provider] of Object.entries(AI_PROVIDERS)) {
-        const modelCount = provider.models?.length || 0;
-        const isActive = key === settings.aiProvider ? ' [active]' : '';
-        description += `- ${provider.name}${isActive} (${modelCount} models)\n`;
-    }
-    
-    description += '\nUse .settings to change provider/model';
+    let description = `Current: ${currentProvider?.name || settings.aiProvider}\n\nUse .settings to change`;
     
     const embed = new EmbedBuilder()
         .setColor(0x5865F2)
@@ -1747,44 +1048,20 @@ async function handleModelInfoCommand(msg) {
 // ============================================================
 
 module.exports = {
-    // AI Providers
-    callGemini,
-    callGroq,
-    callOpenRouter,
-    callPollinationsFree,
-    callPollinationsAPI,
-    callHuggingFace,
     callAI,
-    
-    // Image Analysis
     analyzeImage,
-    
-    // Voice Functions
     joinUserVoiceChannel,
     leaveVoiceChannel,
-    processNextInQueue,
     playTTSInVoice,
-    
-    // Voice AI
-    transcribeWithGroq,
-    setupVoiceReceiver,
-    startRecording,
-    cleanupRecording,
-    processVoiceInput,
-    convertOpusToOgg,
     enableVoiceAI,
     disableVoiceAI,
     isVoiceAIEnabled,
-    
-    // Settings UI
     createSettingsEmbed,
     createProviderMenu,
     createModelMenu,
     createVoiceMenu,
     createElevenlabsVoiceMenu,
     createModeButtons,
-    
-    // Command Handlers
     handleAI,
     handleSpeak,
     handleFileReadWithQuery,
